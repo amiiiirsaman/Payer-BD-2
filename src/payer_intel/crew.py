@@ -1,10 +1,9 @@
 from __future__ import annotations
+
 import csv
 import json
 import logging
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -1072,43 +1071,21 @@ def _most_recent_date(evs: Iterable[Evidence]) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Top-level entry (Agents 1 + 11)
 # ─────────────────────────────────────────────────────────────────────────────
-def _process_one_product(
-    payer: dict[str, str], client: SearchApiClient
-) -> PayerRecord:
-    """Process a single payer in product mode. Thread-safe."""
-    log.info("Processing payer: %s", payer["payer_name"])
-    try:
-        evidence = gather_evidence(payer, client)
-        if evidence:
-            product_map, key_evidence_summary = _classify_with_llm(payer, evidence)
-        else:
-            product_map, key_evidence_summary = {}, ""
-        rec = assemble_record(payer, product_map, evidence)
-        rec.key_evidence = key_evidence_summary
-        return rec
-    except Exception as exc:  # noqa: BLE001
-        log.error("Failed to process %s: %s", payer["payer_name"], exc)
-        rec = assemble_record(payer, {}, [])
-        rec.key_evidence = ""
-        return rec
-
-
-def run(seed_path: Path, out_dir: Path, workers: int = 50) -> Path:
+def run(seed_path: Path, out_dir: Path) -> Path:
     payers = load_seed(seed_path)
     client = SearchApiClient()
-    records: list[PayerRecord | None] = [None] * len(payers)
-    done_count = 0
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        future_to_idx = {
-            pool.submit(_process_one_product, p, client): i
-            for i, p in enumerate(payers)
-        }
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            records[idx] = future.result()
-            done_count += 1
-            log.info("Completed %d/%d payers (product mode)", done_count, len(payers))
+    records: list[PayerRecord] = []
+    for p in payers:
+        log.info("Processing payer: %s", p["payer_name"])
+        evidence = gather_evidence(p, client)
+        if evidence:
+            product_map, key_evidence_summary = _classify_with_llm(p, evidence)
+        else:
+            product_map, key_evidence_summary = {}, ""
+        rec = assemble_record(p, product_map, evidence)
+        rec.key_evidence = key_evidence_summary
+        records.append(rec)
 
     return write_excel(records, out_dir)
 
@@ -1121,8 +1098,6 @@ __all__ = [
     "assemble_executive_record",
     "gather_evidence",
     "gather_executive_evidence",
-    "_process_one_product",
-    "_process_one_executive",
     "load_seed",
     "run",
     "run_executive",
@@ -1725,38 +1700,19 @@ def _default_exec_bd_notes(rec: ExecutivePayerRecord) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Top-level entry — executive mode
 # ─────────────────────────────────────────────────────────────────────────────
-def _process_one_executive(
-    payer: dict[str, str], client: SearchApiClient
-) -> ExecutivePayerRecord:
-    """Process a single payer in executive mode. Thread-safe."""
-    log.info("Processing payer (executive mode): %s", payer["payer_name"])
-    try:
-        evidence = gather_executive_evidence(payer, client)
-        if evidence:
-            classified, bd_notes, summary = _classify_executives_with_llm(payer, evidence)
-        else:
-            classified, bd_notes, summary = {}, "", ""
-        return assemble_executive_record(payer, classified, evidence, bd_notes, summary)
-    except Exception as exc:  # noqa: BLE001
-        log.error("Failed to process %s: %s", payer["payer_name"], exc)
-        return assemble_executive_record(payer, {}, [], "", "")
-
-
-def run_executive(seed_path: Path, out_dir: Path, workers: int = 50) -> Path:
+def run_executive(seed_path: Path, out_dir: Path) -> Path:
     payers = load_seed(seed_path)
     client = SearchApiClient()
-    records: list[ExecutivePayerRecord | None] = [None] * len(payers)
-    done_count = 0
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        future_to_idx = {
-            pool.submit(_process_one_executive, p, client): i
-            for i, p in enumerate(payers)
-        }
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            records[idx] = future.result()
-            done_count += 1
-            log.info("Completed %d/%d payers (executive mode)", done_count, len(payers))
+    records: list[ExecutivePayerRecord] = []
+    for p in payers:
+        log.info("Processing payer (executive mode): %s", p["payer_name"])
+        evidence = gather_executive_evidence(p, client)
+        if evidence:
+            classified, bd_notes, summary = _classify_executives_with_llm(p, evidence)
+        else:
+            classified, bd_notes, summary = {}, "", ""
+        rec = assemble_executive_record(p, classified, evidence, bd_notes, summary)
+        records.append(rec)
 
     return write_excel_executive(records, out_dir)
