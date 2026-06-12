@@ -25,7 +25,7 @@ def test_seed_csv_has_aliases_column():
     for r in rows:
         assert "search_aliases" in r
     uhc = next(r for r in rows if r["payer_name"] == "UnitedHealthcare")
-    assert "UnitedHealth Group" in uhc["search_aliases"]
+    assert "UnitedHealthcare" in uhc["search_aliases"]
 
 
 def test_seed_csv_has_excludes_column():

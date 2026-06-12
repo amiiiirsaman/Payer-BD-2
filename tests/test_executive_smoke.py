@@ -139,3 +139,26 @@ def test_executive_smoke_run(tmp_path: Path, monkeypatch):
     assert ws.cell(row=_row_for("CIO"), column=name_col).value == "Jane Doe"
     # Unidentified role → placeholder
     assert ws.cell(row=_row_for("CMO"), column=name_col).value == "\u2014"
+
+
+def test_is_known_deceased_drops_short_surname():
+    """v3.2 guard: "Sam Ho" must be dropped despite the 2-char last name
+    that would defeat a last-name-only matcher."""
+    from payer_intel.crew import _is_known_deceased
+    from payer_intel.schema import Evidence
+
+    obit = Evidence(
+        source_type="executive_news",
+        url="https://example.com/sam-ho-obit",
+        snippet="Dr. Sam Ho, longtime Chief Medical Officer at UnitedHealthcare, passed away.",
+    )
+    living = Evidence(
+        source_type="executive_news",
+        url="https://example.com/tim-noel",
+        snippet="Tim Noel named CEO of UnitedHealthcare.",
+    )
+    assert _is_known_deceased("Sam Ho", [obit, living]) is True
+    assert _is_known_deceased("Tim Noel", [obit, living]) is False
+    # Full-name anchor prevents false positives: a different exec with the
+    # same surname does not get dropped just because someone else died.
+    assert _is_known_deceased("Alex Ho", [obit, living]) is False

@@ -2,7 +2,7 @@ payer_name,domain,payer_type,search_aliases,search_excludes
 Humana Inc.,humana.com,National,Humana,
 Centene Corporation,centene.com,National,Centene|Fidelis Care|WellCare Health Plans,
 Elevance Health,elevancehealth.com,National,Elevance Health|Anthem|Anthem Inc,
-UnitedHealthcare,uhc.com,National,UnitedHealth Group|UHG|Optum,
+UnitedHealthcare,uhc.com,National,UnitedHealthcare|UHC|United Healthcare,
 CVS Health (Aetna),aetna.com,National,Aetna|CVS Health|CVS Aetna,
 Cigna Healthcare,cigna.com,National,Cigna|Cigna Group|Cigna Global Benefits,
 Kaiser Permanente,kp.org,National,Kaiser Permanente|Kaiser,

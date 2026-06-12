@@ -555,6 +555,31 @@ def _employer_matches_payer(employer_lower: str, payer_aliases_lower: set[str]) 
     return False
 
 
+_DECEASED_SIGNALS: frozenset[str] = frozenset({
+    "passed away", "has died", "have died", "died ", "death of",
+    "obituary", "in memoriam", "rest in peace", "is survived by",
+    "funeral", "memorial service", "posthumously",
+})
+
+
+def _is_known_deceased(name: str, evidence: list[Evidence]) -> bool:
+    """Drop a candidate when the evidence pairs their full name with a death
+    signal. Uses full-name match (not last-name only) so short surnames like
+    "Ho" / "Wu" still anchor, and to avoid false positives from common
+    surnames appearing in unrelated obituaries.
+    """
+    name_lc = name.strip().lower()
+    if len(name_lc) < 5:
+        return False
+    for ev in evidence:
+        text = ((ev.full_text or "") + " " + (ev.snippet or "")).lower()
+        if name_lc not in text:
+            continue
+        if any(sig in text for sig in _DECEASED_SIGNALS):
+            return True
+    return False
+
+
 # Salesforce blog category/tag/author listings and paginated index pages
 # aggregate teasers from unrelated articles. A payer name appearing on
 # such a page is not evidence (Aarete FP-02, FP-07).
@@ -1234,6 +1259,25 @@ def gather_executive_evidence(
             )
         )
 
+    # ── Persona-scoped deceased check (1 call) ─────────────────────────────
+    # Prevents high-profile payer news (e.g. Brian Thompson assassination)
+    # from crowding out smaller obituaries that the deceased guard needs.
+    deceased_query = (
+        f"{name_clause} "
+        f'("passed away" OR "has died" OR "obituary" OR "in memoriam")'
+    )
+    for r in _safe_search(
+        client.google_news, deceased_query, time_range="qdr:2y", num=10
+    ):
+        evidence.append(
+            Evidence(
+                source_type="executive_news",
+                url=r.get("link", "") or "",
+                snippet=(r.get("snippet") or "")[:1500],
+                date=r.get("date"),
+            )
+        )
+
     # Dedupe by (source_type, url)
     seen: set[tuple[str, str]] = set()
     out: list[Evidence] = []
@@ -1597,6 +1641,14 @@ EVIDENCE (JSON array):
             continue
         name = (profile.get("name") or "").strip()
         if not name:
+            continue
+        # Python-level deceased guard: drop any candidate whose full name
+        # appears alongside a deceased-signal phrase in the evidence.
+        if _is_known_deceased(name, evidence):
+            log.warning(
+                "Dropping %s (%s): deceased signal found in evidence for %s",
+                name, role_name, payer_name,
+            )
             continue
         # Hard payer-match validation: drop any executive whose extracted
         # current employer cannot be tied back to the payer's alias set.
