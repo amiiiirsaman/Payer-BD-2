@@ -1,6 +1,9 @@
 # Internal AArete instruction docs (not for the public repo)
 AArete_Executive_App_Instructions.md
 AArete_Executive_Engine_Instructions.md
+AArete_*.md
+AArete*.md
+"AArete *.md"
 
 # Run outputs
 out/
