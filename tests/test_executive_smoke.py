@@ -62,6 +62,7 @@ def _fake_classify(payer, evidence):
             ExecutiveRole.CEO: {
                 "name": "Bruce Broussard",
                 "title": "President & CEO",
+                "current_employer_extracted": "Humana",
                 "linkedin_url": "https://www.linkedin.com/in/bruce-broussard/",
                 "past_jobs": [],
                 "departure_risk": False,
@@ -75,6 +76,7 @@ def _fake_classify(payer, evidence):
             ExecutiveRole.CIO: {
                 "name": "Jane Doe",
                 "title": "Chief Information Officer",
+                "current_employer_extracted": "Humana",
                 "linkedin_url": "https://www.linkedin.com/in/jane-doe-humana/",
                 "past_jobs": [
                     {"firm": "Anthem", "title": "VP Technology", "years": "2022-2024"},
@@ -121,13 +123,19 @@ def test_executive_smoke_run(tmp_path: Path, monkeypatch):
     assert "Executive Intelligence" in wb.sheetnames
     ws = wb["Executive Intelligence"]
     assert [c.value for c in ws[1]] == EXECUTIVE_EXCEL_COLUMNS
-    # Header + 1 payer row
-    assert ws.max_row == 2
+    # Header + 5 persona rows for 1 payer
+    assert ws.max_row == 6
     header = [c.value for c in ws[1]]
-    ceo_col = header.index("CEO Name") + 1
-    cio_col = header.index("CIO/CTO Name") + 1
-    cmo_col = header.index("CMO/Growth Name") + 1
-    assert ws.cell(row=2, column=ceo_col).value == "Bruce Broussard"
-    assert ws.cell(row=2, column=cio_col).value == "Jane Doe"
+    persona_col = header.index("Persona") + 1
+    name_col = header.index("Executive Name") + 1
+
+    def _row_for(persona: str) -> int:
+        for r in range(2, ws.max_row + 1):
+            if ws.cell(row=r, column=persona_col).value == persona:
+                return r
+        raise AssertionError(persona)
+
+    assert ws.cell(row=_row_for("CEO"), column=name_col).value == "Bruce Broussard"
+    assert ws.cell(row=_row_for("CIO"), column=name_col).value == "Jane Doe"
     # Unidentified role → placeholder
-    assert ws.cell(row=2, column=cmo_col).value == "\u2014"
+    assert ws.cell(row=_row_for("CMO"), column=name_col).value == "\u2014"

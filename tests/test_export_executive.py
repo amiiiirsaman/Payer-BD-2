@@ -63,13 +63,37 @@ def test_export_creates_file_with_three_sheets(tmp_path: Path):
     ]
 
 
-def test_export_has_50_column_header_in_spec_order(tmp_path: Path):
+def test_export_has_15_column_header(tmp_path: Path):
     out = write_excel_executive([_sample_record()], tmp_path)
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
-    assert len(header) == 50
+    assert len(header) == 15
     assert header == EXECUTIVE_EXCEL_COLUMNS
+
+
+def test_export_emits_five_rows_per_payer(tmp_path: Path):
+    out = write_excel_executive([_sample_record(), _sample_record()], tmp_path)
+    wb = load_workbook(out)
+    ws = wb["Executive Intelligence"]
+    # 1 header + 5 persona rows × 2 payers = 11 rows
+    assert ws.max_row == 11
+    header = [c.value for c in ws[1]]
+    persona_col = header.index("Persona") + 1
+    personas = [ws.cell(row=r, column=persona_col).value for r in range(2, ws.max_row + 1)]
+    assert personas == [
+        "CEO", "CIO", "CMO", "Chief Medical", "VP Experience",
+        "CEO", "CIO", "CMO", "Chief Medical", "VP Experience",
+    ]
+
+
+def _find_persona_row(ws, persona: str) -> int:
+    header = [c.value for c in ws[1]]
+    persona_col = header.index("Persona") + 1
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=persona_col).value == persona:
+            return r
+    raise AssertionError(f"persona {persona!r} not found")
 
 
 def test_export_writes_executive_names_and_hyperlinks(tmp_path: Path):
@@ -77,10 +101,11 @@ def test_export_writes_executive_names_and_hyperlinks(tmp_path: Path):
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
-    ceo_name_col = header.index("CEO Name") + 1
-    ceo_link_col = header.index("CEO LinkedIn") + 1
-    assert ws.cell(row=2, column=ceo_name_col).value == "Jane Doe"
-    link_cell = ws.cell(row=2, column=ceo_link_col)
+    ceo_row = _find_persona_row(ws, "CEO")
+    name_col = header.index("Executive Name") + 1
+    link_col = header.index("LinkedIn") + 1
+    assert ws.cell(row=ceo_row, column=name_col).value == "Jane Doe"
+    link_cell = ws.cell(row=ceo_row, column=link_col)
     assert link_cell.value == "https://www.linkedin.com/in/jane-doe/"
     assert link_cell.hyperlink is not None
     assert link_cell.hyperlink.target == "https://www.linkedin.com/in/jane-doe/"
@@ -91,8 +116,9 @@ def test_export_uses_placeholder_for_missing_executives(tmp_path: Path):
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
-    cmo_name_col = header.index("CMO/Growth Name") + 1
-    assert ws.cell(row=2, column=cmo_name_col).value == "\u2014"  # em-dash placeholder
+    cmo_row = _find_persona_row(ws, "CMO")
+    name_col = header.index("Executive Name") + 1
+    assert ws.cell(row=cmo_row, column=name_col).value == "\u2014"  # em-dash placeholder
 
 
 def test_export_writes_structured_past_jobs(tmp_path: Path):
@@ -100,11 +126,13 @@ def test_export_writes_structured_past_jobs(tmp_path: Path):
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
-    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Firm") + 1).value == "Anthem"
-    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Title") + 1).value == "VP Technology"
-    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Years") + 1).value == "2018-2022"
-    assert ws.cell(row=2, column=header.index("CEO Past Job 2 Firm") + 1).value == "UnitedHealth Group"
-    assert ws.cell(row=2, column=header.index("CIO Past Job 1 Firm") + 1).value == "Accenture"
+    ceo_row = _find_persona_row(ws, "CEO")
+    cio_row = _find_persona_row(ws, "CIO")
+    assert ws.cell(row=ceo_row, column=header.index("Past Job 1 Firm") + 1).value == "Anthem"
+    assert ws.cell(row=ceo_row, column=header.index("Past Job 1 Title") + 1).value == "VP Technology"
+    assert ws.cell(row=ceo_row, column=header.index("Past Job 1 Years") + 1).value == "2018-2022"
+    assert ws.cell(row=ceo_row, column=header.index("Past Job 2 Firm") + 1).value == "UnitedHealth Group"
+    assert ws.cell(row=cio_row, column=header.index("Past Job 1 Firm") + 1).value == "Accenture"
 
 
 def test_coverage_dashboard_counts_identified_vs_missing(tmp_path: Path):

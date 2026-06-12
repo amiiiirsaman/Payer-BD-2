@@ -1,7 +1,6 @@
 """Schema sanity tests for the executive intelligence pipeline."""
 from payer_intel.schema import (
     EXECUTIVE_EXCEL_COLUMNS,
-    EXECUTIVE_ROLE_COLUMNS,
     EXECUTIVE_TITLE_MAP,
     ConfidenceScore,
     ExecutivePayerRecord,
@@ -25,23 +24,18 @@ def test_title_map_covers_every_role():
         assert all(isinstance(t, str) and t.strip() for t in titles)
 
 
-def test_excel_columns_have_50_in_spec_order():
-    assert len(EXECUTIVE_EXCEL_COLUMNS) == 50
+def test_excel_columns_have_15_in_spec_order():
+    assert len(EXECUTIVE_EXCEL_COLUMNS) == 15
     assert EXECUTIVE_EXCEL_COLUMNS[0] == "Payer Name"
     assert EXECUTIVE_EXCEL_COLUMNS[1] == "Payer Type"
+    assert EXECUTIVE_EXCEL_COLUMNS[2] == "Persona"
+    assert EXECUTIVE_EXCEL_COLUMNS[3] == "Executive Name"
+    assert EXECUTIVE_EXCEL_COLUMNS[5] == "LinkedIn"
     assert EXECUTIVE_EXCEL_COLUMNS[-1] == "BD Notes"
     assert EXECUTIVE_EXCEL_COLUMNS[-2] == "Confidence Score"
     assert EXECUTIVE_EXCEL_COLUMNS[-3] == "Date Verified"
-    assert "CEO Past Job 1 Firm" in EXECUTIVE_EXCEL_COLUMNS
-
-
-def test_role_columns_map_to_excel_columns():
-    cols = set(EXECUTIVE_EXCEL_COLUMNS)
-    assert set(EXECUTIVE_ROLE_COLUMNS.keys()) == set(ExecutiveRole)
-    for role, col_list in EXECUTIVE_ROLE_COLUMNS.items():
-        assert len(col_list) == 9, f"{role} should have 9 columns (3 identity + 6 past-job)"
-        for c in col_list:
-            assert c in cols
+    assert "Past Job 1 Firm" in EXECUTIVE_EXCEL_COLUMNS
+    assert "Past Job 2 Years" in EXECUTIVE_EXCEL_COLUMNS
 
 
 def test_executive_profile_defaults():

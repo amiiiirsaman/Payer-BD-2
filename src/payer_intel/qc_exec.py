@@ -29,7 +29,7 @@ class ExecQCResult:
     note: str = ""
 
 
-_RECENT_NEWS_DAYS = 180  # ~6 months per spec §2 "recent press release"
+_RECENT_NEWS_DAYS = 365  # Expanded to catch long-lead retirements (6-12 mo announcements)
 
 _LINKEDIN_URL_RE = re.compile(r"linkedin\.com/(?:in|pub|pulse|posts)/", re.I)
 _PRESENT_TENURE_RE = re.compile(

@@ -191,37 +191,11 @@ class ExecutivePayerRecord(BaseModel):
         return out
 
 
-# Engine v2 §5 — Per-persona column groups (3 identity + 6 past-job = 9 cols each × 5 personas = 45)
-EXECUTIVE_ROLE_COLUMNS: dict[ExecutiveRole, list[str]] = {
-    ExecutiveRole.CEO: [
-        "CEO Name", "CEO Title", "CEO LinkedIn",
-        "CEO Past Job 1 Firm", "CEO Past Job 1 Title", "CEO Past Job 1 Years",
-        "CEO Past Job 2 Firm", "CEO Past Job 2 Title", "CEO Past Job 2 Years",
-    ],
-    ExecutiveRole.CIO: [
-        "CIO/CTO Name", "CIO/CTO Title", "CIO/CTO LinkedIn",
-        "CIO Past Job 1 Firm", "CIO Past Job 1 Title", "CIO Past Job 1 Years",
-        "CIO Past Job 2 Firm", "CIO Past Job 2 Title", "CIO Past Job 2 Years",
-    ],
-    ExecutiveRole.CMO: [
-        "CMO/Growth Name", "CMO/Growth Title", "CMO/Growth LinkedIn",
-        "CMO Past Job 1 Firm", "CMO Past Job 1 Title", "CMO Past Job 1 Years",
-        "CMO Past Job 2 Firm", "CMO Past Job 2 Title", "CMO Past Job 2 Years",
-    ],
-    ExecutiveRole.CHIEF_MEDICAL: [
-        "Chief Medical Name", "Chief Medical Title", "Chief Medical LinkedIn",
-        "Chief Med Past Job 1 Firm", "Chief Med Past Job 1 Title", "Chief Med Past Job 1 Years",
-        "Chief Med Past Job 2 Firm", "Chief Med Past Job 2 Title", "Chief Med Past Job 2 Years",
-    ],
-    ExecutiveRole.VP_EXPERIENCE: [
-        "VP Experience Name", "VP Experience Title", "VP Experience LinkedIn",
-        "VP Exp Past Job 1 Firm", "VP Exp Past Job 1 Title", "VP Exp Past Job 1 Years",
-        "VP Exp Past Job 2 Firm", "VP Exp Past Job 2 Title", "VP Exp Past Job 2 Years",
-    ],
-}
-
-# Flat 50-column list: 2 identity + 45 persona + 3 metadata.
-EXECUTIVE_EXCEL_COLUMNS: list[str] = ["Payer Name", "Payer Type"]
-for _role in ExecutiveRole:
-    EXECUTIVE_EXCEL_COLUMNS.extend(EXECUTIVE_ROLE_COLUMNS[_role])
-EXECUTIVE_EXCEL_COLUMNS.extend(["Date Verified", "Confidence Score", "BD Notes"])
+# Engine v2.1 §1 — Flat 15-column layout, one row per persona per payer.
+EXECUTIVE_EXCEL_COLUMNS: list[str] = [
+    "Payer Name", "Payer Type", "Persona",
+    "Executive Name", "Exact Title", "LinkedIn",
+    "Past Job 1 Firm", "Past Job 1 Title", "Past Job 1 Years",
+    "Past Job 2 Firm", "Past Job 2 Title", "Past Job 2 Years",
+    "Date Verified", "Confidence Score", "BD Notes",
+]

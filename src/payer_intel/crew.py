@@ -519,6 +519,42 @@ def _alias_in_text(alias_lower: str, text_lower: str) -> bool:
     return bool(re.search(r"\b" + re.escape(alias_lower) + r"\b", text_lower))
 
 
+# Generic payer-industry terms that should NOT be used as the sole basis for
+# tying an extracted current_employer back to a target payer.
+_EMPLOYER_MATCH_STOPWORDS: frozenset[str] = frozenset({
+    "of", "and", "the", "for", "a", "an", "to", "in", "&",
+    "blue", "cross", "shield", "health", "care", "insurance",
+    "plan", "plans", "company", "companies", "inc", "llc", "corp",
+    "corporation", "group", "holdings", "holding", "services", "service",
+    "system", "systems", "mutual", "healthcare", "medical",
+})
+
+
+def _employer_matches_payer(employer_lower: str, payer_aliases_lower: set[str]) -> bool:
+    """Decide whether an LLM-extracted current employer plausibly belongs to a payer.
+
+    Two-tier match: (1) bidirectional alias substring (handles "Humana" ↔ "Humana Inc."
+    and "Blue KC" ↔ "Blue Cross and Blue Shield of Kansas City"); (2) distinctive-token
+    overlap that tolerates parent-company / brand-variant references such as
+    "Independence Health Group" → Independence Blue Cross or "Louisiana Blue" → BCBSLA,
+    while still rejecting unrelated employers like "Curry Health Network" for CareOregon.
+    """
+    if not employer_lower:
+        return True
+    if any(a in employer_lower or employer_lower in a for a in payer_aliases_lower if a):
+        return True
+    employer_tokens = set(re.findall(r"[a-z0-9]+", employer_lower))
+    if not employer_tokens:
+        return False
+    for alias in payer_aliases_lower:
+        if not alias:
+            continue
+        for tok in re.findall(r"[a-z0-9]+", alias):
+            if len(tok) >= 4 and tok not in _EMPLOYER_MATCH_STOPWORDS and tok in employer_tokens:
+                return True
+    return False
+
+
 # Salesforce blog category/tag/author listings and paginated index pages
 # aggregate teasers from unrelated articles. A payer name appearing on
 # such a page is not evidence (Aarete FP-02, FP-07).
@@ -1462,6 +1498,7 @@ OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
     "CEO": {{
       "name": "...",
       "title": "...",
+      "current_employer_extracted": "...",
       "linkedin_url": "https://www.linkedin.com/in/...",
       "past_jobs": [
         {{"firm": "...", "title": "...", "years": "..."}},
@@ -1478,6 +1515,13 @@ OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
   "key_evidence_summary": "2-3 sentence narrative of the strongest evidence"
 }}
 
+CRITICAL: For each executive you MUST set `current_employer_extracted` to the
+exact current employer string taken from the strongest piece of evidence (e.g.
+"Curry Health Network" or "Independence Blue Cross"). The Python validator
+will REJECT any executive whose extracted employer does not match {payer_name}
+(or one of its aliases). When uncertain, leave the field as the literal
+employer text rather than guessing the payer name.
+
 EVIDENCE (JSON array):
 {evidence_blob}
 """.strip()
@@ -1485,8 +1529,9 @@ EVIDENCE (JSON array):
     task = Task(
         description=description,
         expected_output=(
-            'Strict JSON: {"executives": {"<Role>": {"name", "title", "linkedin_url", '
-            '"past_jobs", "departure_risk", "departure_note", "evidence_indices"}}, '
+            'Strict JSON: {"executives": {"<Role>": {"name", "title", '
+            '"current_employer_extracted", "linkedin_url", "past_jobs", '
+            '"departure_risk", "departure_note", "evidence_indices"}}, '
             '"bd_notes", "key_evidence_summary"}'
         ),
         agent=__import__(
@@ -1520,6 +1565,15 @@ EVIDENCE (JSON array):
             continue
         name = (profile.get("name") or "").strip()
         if not name:
+            continue
+        # Hard payer-match validation: drop any executive whose extracted
+        # current employer cannot be tied back to the payer's alias set.
+        employer = str(profile.get("current_employer_extracted") or "").strip().lower()
+        if employer and not _employer_matches_payer(employer, payer_aliases_lower):
+            log.warning(
+                "Dropping %s (%s): extracted employer %r does not match %s aliases",
+                name, role_name, employer, payer_name,
+            )
             continue
         linkedin_url = (profile.get("linkedin_url") or "").strip() or None
         # Reject hallucinated LinkedIn URLs (must appear in evidence)

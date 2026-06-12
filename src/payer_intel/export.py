@@ -7,13 +7,12 @@ from typing import Iterable
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from .schema import (
     EXCEL_COLUMNS,
     EXECUTIVE_EXCEL_COLUMNS,
-    EXECUTIVE_ROLE_COLUMNS,
     ExecutivePayerRecord,
     ExecutiveRole,
     PRODUCT_COLUMNS,
@@ -145,36 +144,37 @@ _LINK_FONT = Font(color="0563C1", underline="single")
 _PLACEHOLDER = "—"
 
 
-def _exec_record_to_row(rec: ExecutivePayerRecord) -> dict[str, str]:
-    row: dict[str, str] = {
-        "Payer Name": rec.payer_name,
-        "Payer Type": rec.payer_type,
-        "Date Verified": rec.date_verified,
-        "Confidence Score": rec.confidence.value,
-        "BD Notes": rec.bd_notes,
-    }
+def _exec_record_to_rows(rec: ExecutivePayerRecord) -> list[dict[str, str]]:
+    """Pivot one payer record into 5 rows (one per ExecutiveRole).
+
+    Missing personas still emit a row with em-dash placeholders so the BD
+    team can see the gap when reading the sheet top-to-bottom.
+    """
+    rows: list[dict[str, str]] = []
     for role in ExecutiveRole:
-        cols = EXECUTIVE_ROLE_COLUMNS[role]
         profile = rec.executives.get(role)
-        if not profile or not profile.name:
-            for c in cols:
-                row[c] = ""
-            continue
-        # Identity columns (Name, Title, LinkedIn)
-        row[cols[0]] = profile.name or ""
-        row[cols[1]] = profile.title or ""
-        row[cols[2]] = profile.linkedin_url or ""
-        # Past job columns: 2 jobs × (Firm, Title, Years)
-        for i in range(2):
-            firm_col, title_col, years_col = cols[3 + i * 3], cols[4 + i * 3], cols[5 + i * 3]
-            if i < len(profile.past_jobs):
-                job = profile.past_jobs[i]
-                row[firm_col] = job.firm
-                row[title_col] = job.title
-                row[years_col] = job.years
-            else:
-                row[firm_col] = row[title_col] = row[years_col] = ""
-    return row
+        has_exec = bool(profile and profile.name)
+        row = {
+            "Payer Name": rec.payer_name,
+            "Payer Type": rec.payer_type,
+            "Persona": role.value,
+            "Executive Name": profile.name if has_exec else _PLACEHOLDER,
+            "Exact Title": (profile.title if has_exec and profile.title else ("" if has_exec else _PLACEHOLDER)),
+            "LinkedIn": (profile.linkedin_url or "") if has_exec else "",
+            "Past Job 1 Firm": "", "Past Job 1 Title": "", "Past Job 1 Years": "",
+            "Past Job 2 Firm": "", "Past Job 2 Title": "", "Past Job 2 Years": "",
+            "Date Verified": rec.date_verified,
+            "Confidence Score": profile.confidence.value if has_exec else _PLACEHOLDER,
+            "BD Notes": rec.bd_notes,
+        }
+        if has_exec and profile.past_jobs:
+            j0 = profile.past_jobs[0]
+            row["Past Job 1 Firm"], row["Past Job 1 Title"], row["Past Job 1 Years"] = j0.firm, j0.title, j0.years
+            if len(profile.past_jobs) > 1:
+                j1 = profile.past_jobs[1]
+                row["Past Job 2 Firm"], row["Past Job 2 Title"], row["Past Job 2 Years"] = j1.firm, j1.title, j1.years
+        rows.append(row)
+    return rows
 
 
 def write_excel_executive(
@@ -186,8 +186,10 @@ def write_excel_executive(
     path = out_dir / f"Aarete_BD_Executive_Intelligence_{stamp}.xlsx"
 
     records_list = list(records)
-    rows = [_exec_record_to_row(r) for r in records_list]
-    df = pd.DataFrame(rows, columns=EXECUTIVE_EXCEL_COLUMNS)
+    flat_rows: list[dict[str, str]] = []
+    for r in records_list:
+        flat_rows.extend(_exec_record_to_rows(r))
+    df = pd.DataFrame(flat_rows, columns=EXECUTIVE_EXCEL_COLUMNS)
 
     wb = Workbook()
     ws = wb.active
@@ -204,68 +206,56 @@ def write_excel_executive(
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    ws.freeze_panes = "B2"
+    ws.freeze_panes = "D2"
 
     widths: dict[str, int] = {
-        "Payer Name": 26, "Payer Type": 14,
+        "Payer Name": 26, "Payer Type": 14, "Persona": 18,
+        "Executive Name": 22, "Exact Title": 28, "LinkedIn": 36,
+        "Past Job 1 Firm": 22, "Past Job 1 Title": 26, "Past Job 1 Years": 14,
+        "Past Job 2 Firm": 22, "Past Job 2 Title": 26, "Past Job 2 Years": 14,
         "Date Verified": 14, "Confidence Score": 16, "BD Notes": 55,
     }
-    for role in ExecutiveRole:
-        cols = EXECUTIVE_ROLE_COLUMNS[role]
-        widths[cols[0]] = 22   # Name
-        widths[cols[1]] = 28   # Title
-        widths[cols[2]] = 36   # LinkedIn
-        for i in range(2):
-            widths[cols[3 + i * 3]] = 22   # Past Firm
-            widths[cols[4 + i * 3]] = 26   # Past Title
-            widths[cols[5 + i * 3]] = 14   # Past Years
     for col_idx, name in enumerate(EXECUTIVE_EXCEL_COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, 18)
 
     wrap_align = Alignment(wrap_text=True, vertical="top")
+    centre_dash_align = Alignment(wrap_text=True, vertical="top", horizontal="center")
     placeholder_font = Font(color="A0A0A0", italic=True)
-    linkedin_col_indices = {
-        EXECUTIVE_ROLE_COLUMNS[role][2]: EXECUTIVE_EXCEL_COLUMNS.index(EXECUTIVE_ROLE_COLUMNS[role][2]) + 1
-        for role in ExecutiveRole
-    }
-    name_col_indices = {
-        EXECUTIVE_ROLE_COLUMNS[role][0]: EXECUTIVE_EXCEL_COLUMNS.index(EXECUTIVE_ROLE_COLUMNS[role][0]) + 1
-        for role in ExecutiveRole
-    }
+    linkedin_col = EXECUTIVE_EXCEL_COLUMNS.index("LinkedIn") + 1
+    name_col = EXECUTIVE_EXCEL_COLUMNS.index("Executive Name") + 1
+    top_border = Border(top=Side(style="thin", color="B0B0B0"))
 
-    for row_num in range(2, len(rows) + 2):
+    for row_num in range(2, len(flat_rows) + 2):
         for col_idx in range(1, len(EXECUTIVE_EXCEL_COLUMNS) + 1):
             ws.cell(row=row_num, column=col_idx).alignment = wrap_align
 
-        # LinkedIn hyperlinks
-        for _link_col, col_idx in linkedin_col_indices.items():
-            cell = ws.cell(row=row_num, column=col_idx)
-            url = str(cell.value or "").strip()
-            if url:
-                cell.hyperlink = url
-                cell.font = _LINK_FONT
-            else:
-                cell.value = _PLACEHOLDER
-                cell.font = placeholder_font
-                cell.alignment = Alignment(
-                    wrap_text=True, vertical="top", horizontal="center"
-                )
+        # LinkedIn hyperlink (single column)
+        link_cell = ws.cell(row=row_num, column=linkedin_col)
+        url = str(link_cell.value or "").strip()
+        if url:
+            link_cell.hyperlink = url
+            link_cell.font = _LINK_FONT
+        else:
+            link_cell.value = _PLACEHOLDER
+            link_cell.font = placeholder_font
+            link_cell.alignment = centre_dash_align
 
-        # Placeholder dash for empty name cells
-        for _name_col, col_idx in name_col_indices.items():
-            cell = ws.cell(row=row_num, column=col_idx)
-            if not str(cell.value or "").strip():
-                cell.value = _PLACEHOLDER
-                cell.font = placeholder_font
-                cell.alignment = Alignment(
-                    wrap_text=True, vertical="top", horizontal="center"
-                )
+        # Placeholder dash for missing executive name cells (already set by _exec_record_to_rows)
+        name_cell = ws.cell(row=row_num, column=name_col)
+        if str(name_cell.value or "").strip() == _PLACEHOLDER:
+            name_cell.font = placeholder_font
+            name_cell.alignment = centre_dash_align
+
+        # Thin top border on the first row of each payer's 5-row block (CEO row).
+        if (row_num - 2) % len(ExecutiveRole) == 0:
+            for col_idx in range(1, len(EXECUTIVE_EXCEL_COLUMNS) + 1):
+                ws.cell(row=row_num, column=col_idx).border = top_border
 
     # Conditional formatting on Confidence Score column
-    if rows:
+    if flat_rows:
         conf_idx = EXECUTIVE_EXCEL_COLUMNS.index("Confidence Score") + 1
         col_letter = get_column_letter(conf_idx)
-        rng = f"{col_letter}2:{col_letter}{len(rows) + 1}"
+        rng = f"{col_letter}2:{col_letter}{len(flat_rows) + 1}"
         ws.conditional_formatting.add(
             rng, CellIsRule(operator="equal", formula=['"High"'], fill=PatternFill("solid", fgColor="C6EFCE"))
         )
