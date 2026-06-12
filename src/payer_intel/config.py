@@ -19,7 +19,7 @@ class Settings:
     searchapi_key: str
     search_provider: str
     searchapi_endpoint: str = "https://www.searchapi.io/api/v1/search"
-    max_calls_per_run: int = 200
+    max_calls_per_run: int = 5000
     http_timeout_seconds: float = 12.0
 
 

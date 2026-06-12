@@ -32,6 +32,18 @@ def parse_args() -> argparse.Namespace:
         default="product",
         help="product = Salesforce product detection (default); executive = 5-persona executive intelligence.",
     )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=50,
+        help=(
+            "Number of parallel worker threads for payer processing. "
+            "Default 50. Each worker runs one payer concurrently (SearchApi + LLM). "
+            "Constrained by SearchApi rate limits (~10 req/s on paid plans) and "
+            "AWS Bedrock TPS limits. Use --workers 5 for smoke tests, "
+            "--workers 50 for production runs of 50-200 payers."
+        ),
+    )
     return p.parse_args()
 
 
@@ -70,10 +82,12 @@ def main() -> int:
         seed_count = sum(1 for _ in csv.DictReader(f))
     per_payer = _CALLS_PER_PAYER[args.mode]
     check_searchapi_quota(min_required=seed_count * per_payer)
+    workers = args.workers
+    print(f"Running in {args.mode!r} mode with {workers} parallel workers on {seed_count} payers.")
     if args.mode == "executive":
-        out = run_executive(Path(args.seed), Path(args.out))
+        out = run_executive(Path(args.seed), Path(args.out), workers=workers)
     else:
-        out = run(Path(args.seed), Path(args.out))
+        out = run(Path(args.seed), Path(args.out), workers=workers)
     print(f"\nReport written: {out}")
     return 0
 

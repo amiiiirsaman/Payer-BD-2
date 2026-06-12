@@ -19,7 +19,7 @@ def test_smoke_full_pipeline(tmp_path: Path):
     seed = root / "data" / "seed_payers_smoke.csv"
     assert seed.exists(), f"missing seed: {seed}"
 
-    out_path = run(seed, tmp_path)
+    out_path = run(seed, tmp_path, workers=1)
     assert out_path.exists()
 
     wb = load_workbook(out_path)

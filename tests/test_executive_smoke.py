@@ -116,7 +116,7 @@ def test_executive_smoke_run(tmp_path: Path, monkeypatch):
         client.google_news.side_effect = _fake_google_news
 
         from payer_intel.crew import run_executive
-        out = run_executive(seed, out_dir)
+        out = run_executive(seed, out_dir, workers=1)
 
     assert out.exists()
     wb = load_workbook(out)
