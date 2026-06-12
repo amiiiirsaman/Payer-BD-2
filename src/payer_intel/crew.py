@@ -1127,7 +1127,7 @@ _APPOINTMENT_TERMS = (
     '"appointed" OR "named" OR "joins as" OR "promoted to" '
     'OR "elected" OR "announces" OR "new Chief" '
     'OR "retire" OR "retirement" OR "successor" OR "departure" OR "steps down" '
-    'OR "passed away" OR "deceased" OR "in memoriam"'
+    'OR "passed away" OR "deceased" OR "in memoriam" OR "obituary"'
 )
 
 
@@ -1483,8 +1483,23 @@ Rules:
   Mention the successor in `bd_notes` and `departure_note`, but do NOT force
   the successor into a different persona slot (like CMO) just to get them on
   the board.
-- For each chosen executive, extract the 2 most recent prior roles (NOT the
-  current role at {payer_name}) from the evidence. Format as a list of objects:
+- PARENT VS SUBSIDIARY: If {payer_name} is a subsidiary or division (e.g.
+  "UnitedHealthcare" is the insurance subsidiary of UnitedHealth Group, and
+  "Aetna" is the insurance subsidiary of CVS Health), and the evidence
+  mentions BOTH the subsidiary executive (e.g. Tim Noel, CEO of
+  UnitedHealthcare) AND the parent holding-company executive (e.g. Andrew
+  Witty, former CEO of UnitedHealth Group), you MUST select the executive of
+  the specific subsidiary/division named in {payer_name}, NOT the parent
+  holding company. When in doubt, prefer the executive whose title or press
+  release explicitly names the subsidiary.
+- For each chosen executive, extract their 2 IMMEDIATE prior roles
+  chronologically (NOT their current role at {payer_name}).
+  * Prioritize their most recent previous titles WITHIN the current
+    organization (e.g. if the current CEO was previously COO of the same
+    company, that COO role is Past Job 1).
+  * Do NOT skip over recent internal promotions to pull 10-year-old jobs
+    from previous employers.
+  * Format as a list of objects:
   [{{"firm": "Anthem", "title": "VP Technology", "years": "2018-2022"}}, ...].
   If years are not mentioned, use an empty string for "years". Omit "past_jobs"
   or use an empty list if no prior roles are found.
