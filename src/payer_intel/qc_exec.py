@@ -36,7 +36,10 @@ _PRESENT_TENURE_RE = re.compile(
     r"\b(present|current)\b|\b\d{4}\s*[-\u2013]\s*present\b",
     re.I,
 )
-_THIRD_PARTY_HOSTS = ("rocketreach.co", "zoominfo.com", "beckershospitalreview.com")
+_THIRD_PARTY_HOSTS = (
+    "rocketreach.co", "zoominfo.com", "beckershospitalreview.com",
+    "beckerspayer.com", "modernhealthcare.com", "ahip.org",
+)
 
 
 def _is_linkedin(ev: Evidence) -> bool:

@@ -63,7 +63,9 @@ def _fake_classify(payer, evidence):
                 "name": "Bruce Broussard",
                 "title": "President & CEO",
                 "linkedin_url": "https://www.linkedin.com/in/bruce-broussard/",
-                "past_firms": [],
+                "past_jobs": [],
+                "departure_risk": False,
+                "departure_note": "",
                 "evidence_indices": [
                     i for i, e in enumerate(evidence)
                     if "broussard" in (e.url or "").lower()
@@ -74,7 +76,11 @@ def _fake_classify(payer, evidence):
                 "name": "Jane Doe",
                 "title": "Chief Information Officer",
                 "linkedin_url": "https://www.linkedin.com/in/jane-doe-humana/",
-                "past_firms": ["Anthem"],
+                "past_jobs": [
+                    {"firm": "Anthem", "title": "VP Technology", "years": "2022-2024"},
+                ],
+                "departure_risk": False,
+                "departure_note": "",
                 "evidence_indices": [
                     i for i, e in enumerate(evidence)
                     if "jane-doe" in (e.url or "").lower()

@@ -111,14 +111,16 @@ class ExecLeadershipPageTool(BaseTool):
 class ExecThirdPartyDirectoryTool(BaseTool):
     name: str = "executive_third_party_directory_search"
     description: str = (
-        "Cross-reference an executive against third-party directories (ZoomInfo, "
-        "RocketReach, Becker's Hospital Review) for tenure and past-firm validation. "
-        "Input: '\"<payer>\" \"<title or name>\"'. Returns JSON list."
+        "Cross-reference an executive against third-party directories and healthcare trade "
+        "press for tenure, past roles (firm/title/years), and departure risk. Sources: "
+        "ZoomInfo, RocketReach, Becker's Payer Issues, Modern Healthcare, AHIP conference "
+        "speaker lists. Input: '\"<payer>\" \"<title or name>\"'. Returns JSON list."
     )
     args_schema: Type[BaseModel] = _QueryInput
 
     def _run(self, query: str) -> str:
         scoped = (
-            f"(site:rocketreach.co OR site:zoominfo.com OR site:beckershospitalreview.com) {query}"
+            f"(site:rocketreach.co OR site:zoominfo.com OR site:beckershospitalreview.com "
+            f"OR site:beckerspayer.com OR site:modernhealthcare.com OR site:ahip.org) {query}"
         )
         return json.dumps(_search.google(scoped, num=10))

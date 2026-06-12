@@ -146,20 +146,34 @@ _PLACEHOLDER = "—"
 
 
 def _exec_record_to_row(rec: ExecutivePayerRecord) -> dict[str, str]:
-    row = {
+    row: dict[str, str] = {
         "Payer Name": rec.payer_name,
         "Payer Type": rec.payer_type,
-        "Past Firms": ", ".join(rec.aggregated_past_firms),
         "Date Verified": rec.date_verified,
         "Confidence Score": rec.confidence.value,
         "BD Notes": rec.bd_notes,
     }
-    for role, name_col, link_col in EXECUTIVE_ROLE_COLUMNS:
+    for role in ExecutiveRole:
+        cols = EXECUTIVE_ROLE_COLUMNS[role]
         profile = rec.executives.get(role)
-        row[name_col] = (profile.name if profile and profile.name else "") if profile else ""
-        row[link_col] = (
-            profile.linkedin_url if profile and profile.linkedin_url else ""
-        ) if profile else ""
+        if not profile or not profile.name:
+            for c in cols:
+                row[c] = ""
+            continue
+        # Identity columns (Name, Title, LinkedIn)
+        row[cols[0]] = profile.name or ""
+        row[cols[1]] = profile.title or ""
+        row[cols[2]] = profile.linkedin_url or ""
+        # Past job columns: 2 jobs × (Firm, Title, Years)
+        for i in range(2):
+            firm_col, title_col, years_col = cols[3 + i * 3], cols[4 + i * 3], cols[5 + i * 3]
+            if i < len(profile.past_jobs):
+                job = profile.past_jobs[i]
+                row[firm_col] = job.firm
+                row[title_col] = job.title
+                row[years_col] = job.years
+            else:
+                row[firm_col] = row[title_col] = row[years_col] = ""
     return row
 
 
@@ -192,28 +206,31 @@ def write_excel_executive(
 
     ws.freeze_panes = "B2"
 
-    widths = {
+    widths: dict[str, int] = {
         "Payer Name": 26, "Payer Type": 14,
-        "CEO Name": 22, "CEO LinkedIn": 32,
-        "CIO/CTO Name": 22, "CIO/CTO LinkedIn": 32,
-        "CMO/Growth Name": 22, "CMO/Growth LinkedIn": 32,
-        "Chief Medical Name": 22, "Chief Medical LinkedIn": 32,
-        "VP Experience Name": 22, "VP Experience LinkedIn": 32,
-        "Past Firms": 40, "Date Verified": 14,
-        "Confidence Score": 16, "BD Notes": 50,
+        "Date Verified": 14, "Confidence Score": 16, "BD Notes": 55,
     }
+    for role in ExecutiveRole:
+        cols = EXECUTIVE_ROLE_COLUMNS[role]
+        widths[cols[0]] = 22   # Name
+        widths[cols[1]] = 28   # Title
+        widths[cols[2]] = 36   # LinkedIn
+        for i in range(2):
+            widths[cols[3 + i * 3]] = 22   # Past Firm
+            widths[cols[4 + i * 3]] = 26   # Past Title
+            widths[cols[5 + i * 3]] = 14   # Past Years
     for col_idx, name in enumerate(EXECUTIVE_EXCEL_COLUMNS, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, 18)
 
     wrap_align = Alignment(wrap_text=True, vertical="top")
     placeholder_font = Font(color="A0A0A0", italic=True)
     linkedin_col_indices = {
-        link_col: EXECUTIVE_EXCEL_COLUMNS.index(link_col) + 1
-        for _, _, link_col in EXECUTIVE_ROLE_COLUMNS
+        EXECUTIVE_ROLE_COLUMNS[role][2]: EXECUTIVE_EXCEL_COLUMNS.index(EXECUTIVE_ROLE_COLUMNS[role][2]) + 1
+        for role in ExecutiveRole
     }
     name_col_indices = {
-        name_col: EXECUTIVE_EXCEL_COLUMNS.index(name_col) + 1
-        for _, name_col, _ in EXECUTIVE_ROLE_COLUMNS
+        EXECUTIVE_ROLE_COLUMNS[role][0]: EXECUTIVE_EXCEL_COLUMNS.index(EXECUTIVE_ROLE_COLUMNS[role][0]) + 1
+        for role in ExecutiveRole
     }
 
     for row_num in range(2, len(rows) + 2):
@@ -300,41 +317,46 @@ def write_excel_executive(
     # ── Sheet 3: Past Firms Index (powers Warm Intro Mapper UI) ────────────
     firms_sheet = wb.create_sheet("Past Firms Index")
     firms_sheet.append([
-        "Past Firm", "Executive Name", "Current Role", "Current Payer", "LinkedIn",
+        "Past Firm", "Past Title", "Past Years",
+        "Executive Name", "Current Role", "Current Payer", "LinkedIn",
     ])
     for cell in firms_sheet[1]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    firm_rows: list[tuple[str, str, str, str, str]] = []
+    firm_rows: list[tuple[str, str, str, str, str, str, str]] = []
     for rec in records_list:
         for role in ExecutiveRole:
             profile = rec.executives.get(role)
-            if not (profile and profile.name and profile.past_firms):
+            if not (profile and profile.name and profile.past_jobs):
                 continue
-            for firm in profile.past_firms:
+            for job in profile.past_jobs:
                 firm_rows.append((
-                    firm,
+                    job.firm,
+                    job.title,
+                    job.years,
                     profile.name,
                     role.value,
                     rec.payer_name,
                     profile.linkedin_url or "",
                 ))
-    firm_rows.sort(key=lambda t: (t[0].lower(), t[3].lower()))
+    firm_rows.sort(key=lambda t: (t[0].lower(), t[5].lower()))
     for row in firm_rows:
         firms_sheet.append(list(row))
-    # Hyperlink the LinkedIn column on this sheet
+    # Hyperlink the LinkedIn column on this sheet (now column 7)
     for row_num in range(2, len(firm_rows) + 2):
-        cell = firms_sheet.cell(row=row_num, column=5)
+        cell = firms_sheet.cell(row=row_num, column=7)
         url = str(cell.value or "").strip()
         if url:
             cell.hyperlink = url
             cell.font = _LINK_FONT
     firms_sheet.column_dimensions["A"].width = 26
-    firms_sheet.column_dimensions["B"].width = 24
-    firms_sheet.column_dimensions["C"].width = 16
-    firms_sheet.column_dimensions["D"].width = 28
-    firms_sheet.column_dimensions["E"].width = 36
+    firms_sheet.column_dimensions["B"].width = 28
+    firms_sheet.column_dimensions["C"].width = 14
+    firms_sheet.column_dimensions["D"].width = 24
+    firms_sheet.column_dimensions["E"].width = 16
+    firms_sheet.column_dimensions["F"].width = 28
+    firms_sheet.column_dimensions["G"].width = 36
     firms_sheet.freeze_panes = "A2"
 
     wb.save(path)

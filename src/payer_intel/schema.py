@@ -139,13 +139,23 @@ EXECUTIVE_TITLE_MAP: dict[ExecutiveRole, list[str]] = {
 }
 
 
+class PastJob(BaseModel):
+    """One prior role for a BD warm-intro trail."""
+
+    firm: str = ""
+    title: str = ""
+    years: str = ""  # e.g. "2018-2022" or "~3 years"
+
+
 class ExecutiveProfile(BaseModel):
     """A single executive identified for one persona at one payer."""
 
     name: Optional[str] = None
     title: Optional[str] = None  # actual title as found (e.g. "Chief Digital Officer")
     linkedin_url: Optional[str] = None
-    past_firms: List[str] = Field(default_factory=list)
+    past_jobs: List[PastJob] = Field(default_factory=list)  # top 2 most recent prior roles
+    departure_risk: bool = False
+    departure_note: Optional[str] = None
     confidence: ConfidenceScore = ConfidenceScore.LOW
     confidence_note: Optional[str] = None
     evidence: List[Evidence] = Field(default_factory=list)
@@ -172,41 +182,46 @@ class ExecutivePayerRecord(BaseModel):
             prof = self.executives.get(role)
             if not prof:
                 continue
-            for firm in prof.past_firms:
-                key = firm.strip().lower()
+            for job in prof.past_jobs:
+                key = job.firm.strip().lower()
                 if not key or key in seen:
                     continue
                 seen.add(key)
-                out.append(firm.strip())
+                out.append(job.firm.strip())
         return out
 
 
-# Spec §3: 16 columns A–P.
-EXECUTIVE_EXCEL_COLUMNS: list[str] = [
-    "Payer Name",            # A
-    "Payer Type",            # B
-    "CEO Name",              # C
-    "CEO LinkedIn",          # D
-    "CIO/CTO Name",          # E
-    "CIO/CTO LinkedIn",      # F
-    "CMO/Growth Name",       # G
-    "CMO/Growth LinkedIn",   # H
-    "Chief Medical Name",    # I
-    "Chief Medical LinkedIn",# J
-    "VP Experience Name",    # K
-    "VP Experience LinkedIn",# L
-    "Past Firms",            # M
-    "Date Verified",         # N
-    "Confidence Score",      # O
-    "BD Notes",              # P
-]
+# Engine v2 §5 — Per-persona column groups (3 identity + 6 past-job = 9 cols each × 5 personas = 45)
+EXECUTIVE_ROLE_COLUMNS: dict[ExecutiveRole, list[str]] = {
+    ExecutiveRole.CEO: [
+        "CEO Name", "CEO Title", "CEO LinkedIn",
+        "CEO Past Job 1 Firm", "CEO Past Job 1 Title", "CEO Past Job 1 Years",
+        "CEO Past Job 2 Firm", "CEO Past Job 2 Title", "CEO Past Job 2 Years",
+    ],
+    ExecutiveRole.CIO: [
+        "CIO/CTO Name", "CIO/CTO Title", "CIO/CTO LinkedIn",
+        "CIO Past Job 1 Firm", "CIO Past Job 1 Title", "CIO Past Job 1 Years",
+        "CIO Past Job 2 Firm", "CIO Past Job 2 Title", "CIO Past Job 2 Years",
+    ],
+    ExecutiveRole.CMO: [
+        "CMO/Growth Name", "CMO/Growth Title", "CMO/Growth LinkedIn",
+        "CMO Past Job 1 Firm", "CMO Past Job 1 Title", "CMO Past Job 1 Years",
+        "CMO Past Job 2 Firm", "CMO Past Job 2 Title", "CMO Past Job 2 Years",
+    ],
+    ExecutiveRole.CHIEF_MEDICAL: [
+        "Chief Medical Name", "Chief Medical Title", "Chief Medical LinkedIn",
+        "Chief Med Past Job 1 Firm", "Chief Med Past Job 1 Title", "Chief Med Past Job 1 Years",
+        "Chief Med Past Job 2 Firm", "Chief Med Past Job 2 Title", "Chief Med Past Job 2 Years",
+    ],
+    ExecutiveRole.VP_EXPERIENCE: [
+        "VP Experience Name", "VP Experience Title", "VP Experience LinkedIn",
+        "VP Exp Past Job 1 Firm", "VP Exp Past Job 1 Title", "VP Exp Past Job 1 Years",
+        "VP Exp Past Job 2 Firm", "VP Exp Past Job 2 Title", "VP Exp Past Job 2 Years",
+    ],
+}
 
-
-# (role, name_column, linkedin_column) — drives export column ordering.
-EXECUTIVE_ROLE_COLUMNS: list[tuple[ExecutiveRole, str, str]] = [
-    (ExecutiveRole.CEO, "CEO Name", "CEO LinkedIn"),
-    (ExecutiveRole.CIO, "CIO/CTO Name", "CIO/CTO LinkedIn"),
-    (ExecutiveRole.CMO, "CMO/Growth Name", "CMO/Growth LinkedIn"),
-    (ExecutiveRole.CHIEF_MEDICAL, "Chief Medical Name", "Chief Medical LinkedIn"),
-    (ExecutiveRole.VP_EXPERIENCE, "VP Experience Name", "VP Experience LinkedIn"),
-]
+# Flat 50-column list: 2 identity + 45 persona + 3 metadata.
+EXECUTIVE_EXCEL_COLUMNS: list[str] = ["Payer Name", "Payer Type"]
+for _role in ExecutiveRole:
+    EXECUTIVE_EXCEL_COLUMNS.extend(EXECUTIVE_ROLE_COLUMNS[_role])
+EXECUTIVE_EXCEL_COLUMNS.extend(["Date Verified", "Confidence Score", "BD Notes"])

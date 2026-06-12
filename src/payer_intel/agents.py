@@ -161,12 +161,16 @@ def executive_linkedin_agent() -> Agent:
         role="Executive Profile Hunter",
         goal=(
             "Find LinkedIn profiles for the 5 BD personas (CEO, CIO/CTO, CMO/Growth, "
-            "Chief Medical, VP Member Experience) at the target payer, capturing name, "
-            "current title, LinkedIn URL, and 1-2 most recent prior firms."
+            "Chief Medical, VP Member Experience) at the target payer. For each executive, "
+            "capture: name, current title, LinkedIn URL, and the 2 most recent prior roles "
+            "(firm, title, years) for BD warm-intro mapping. ONLY include executives who "
+            "currently work at the target payer — never assign a profile from a different "
+            "health plan."
         ),
         backstory=(
-            "You specialize in mining LinkedIn snippet results for executive identity "
-            "and tenure signals. You ignore former employees and resolve title aliases."
+            "You specialize in mining LinkedIn snippet results for executive identity, "
+            "tenure signals, and career history. You strictly enforce payer-name matching "
+            "and never confuse executives from one health plan with another."
         ),
         tools=[ExecLinkedInSearchTool()],
         llm=_llm(),
@@ -179,12 +183,16 @@ def executive_news_agent() -> Agent:
     return Agent(
         role="Leadership Change Tracker",
         goal=(
-            "Find press releases announcing executive appointments and official "
-            "leadership / executive-team pages on the payer's own domain."
+            "Find press releases announcing executive appointments AND departures at the "
+            "target payer. Search official leadership pages, wire services, Becker's Payer "
+            "Issues, Modern Healthcare, and AHIP conference speaker lists. Flag any executive "
+            "who has announced retirement, a planned departure, or whose successor has been named."
         ),
         backstory=(
-            "You scan business wire services and payer newsrooms for 'appointed', "
-            "'named', and 'joins as' announcements that confirm current C-suite roles."
+            "You scan business wire services, payer newsrooms, and healthcare trade press "
+            "(Becker's Payer, Modern Healthcare, AHIP) for 'appointed', 'named', 'joins as', "
+            "'retire', 'steps down', and 'successor' signals to confirm current C-suite roles "
+            "and surface departure risks before they become stale data."
         ),
         tools=[GoogleNewsTool(), ExecLeadershipPageTool()],
         llm=_llm(),
@@ -197,12 +205,14 @@ def executive_third_party_agent() -> Agent:
     return Agent(
         role="Executive Directory Cross-Referencer",
         goal=(
-            "Triangulate executive tenure and past firms via third-party directories "
-            "(ZoomInfo, RocketReach, Becker's Hospital Review)."
+            "Triangulate executive tenure, past roles (firm + title + years), and departure "
+            "risk via third-party directories: ZoomInfo, RocketReach, Becker's Payer Issues, "
+            "Modern Healthcare, and AHIP conference speaker pages."
         ),
         backstory=(
-            "You corroborate LinkedIn snippets with independent third-party sources "
-            "so confidence can be elevated to High when triangulated."
+            "You corroborate LinkedIn snippets with independent third-party sources to elevate "
+            "confidence to High when triangulated, and to surface structured career history "
+            "(past firm, title, years) for BD warm-intro mapping."
         ),
         tools=[ExecThirdPartyDirectoryTool()],
         llm=_llm(),
@@ -216,8 +226,11 @@ def executive_classifier_agent() -> Agent:
         role="Executive Name Resolver",
         goal=(
             "From the gathered evidence, identify the single current holder of each of "
-            "the 5 BD personas. Resolve name collisions by preferring 'Present' tenure "
-            "on LinkedIn or the most recent press release. Extract 1-2 past firms per exec."
+            "the 5 BD personas at the target payer. CRITICAL: reject any executive whose "
+            "current employer does not match the target payer. Resolve name collisions by "
+            "preferring 'Present' LinkedIn tenure or the most recent press release. "
+            "Extract the 2 most recent prior roles (firm, title, years) per exec. "
+            "Flag departure_risk=true if any executive is retiring or has a named successor."
         ),
         backstory=(
             "You are an expert in payer leadership structures and never confuse a Chief "

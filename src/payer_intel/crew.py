@@ -32,6 +32,7 @@ from .qc import score as qc_score
 from .qc_exec import (
     aggregate_confidence as exec_aggregate_confidence,
     score_executive as exec_score,
+    _within_days,
 )
 from .schema import (
     ConfidenceScore,
@@ -42,6 +43,7 @@ from .schema import (
     ExecutivePayerRecord,
     ExecutiveProfile,
     ExecutiveRole,
+    PastJob,
     PRODUCT_COLUMNS,
     PayerRecord,
     SalesforceProduct,
@@ -345,6 +347,8 @@ _FETCH_DOMAINS: frozenset[str] = frozenset({
     "mobihealthnews.com",
     "medcitynews.com",
     "beckershospitalreview.com",
+    "beckerspayer.com",
+    "ahip.org",
     # CIO / executive interview sources (Aarete MS-01)
     "deloitte.wsj.com",
     "deloitte.com",
@@ -1085,7 +1089,8 @@ _LEADERSHIP_PATHS = (
 # Press-release title patterns that strongly indicate an executive appointment.
 _APPOINTMENT_TERMS = (
     '"appointed" OR "named" OR "joins as" OR "promoted to" '
-    'OR "elected" OR "announces" OR "new Chief"'
+    'OR "elected" OR "announces" OR "new Chief" '
+    'OR "retire" OR "retirement" OR "successor" OR "departure" OR "steps down"'
 )
 
 
@@ -1400,6 +1405,13 @@ TARGET PERSONAS (use these exact strings as JSON keys):
 {roles_list}
 
 Rules:
+- CRITICAL PAYER-MATCH RULE: You MUST verify that the executive CURRENTLY works at
+  **{payer_name}** (or one of its known aliases). If the payer name does not appear
+  in the CURRENT role section of the evidence — i.e. the LinkedIn snippet shows
+  "Present" at a DIFFERENT organization, or the press release names a different
+  health plan — you MUST omit that executive entirely. Do NOT assign an executive
+  from Independence Blue Cross to Aetna, or from Humana to UnitedHealth, etc.
+  When in doubt, omit rather than guess.
 - For EACH persona, pick the single current executive at {payer_name} based on
   the evidence. If no qualifying evidence exists, OMIT that persona from the
   output (do not invent names).
@@ -1418,10 +1430,16 @@ Rules:
 - VP Member Experience covers: Chief Experience Officer, Chief Patient
   Engagement Officer, Chief Member/Customer Experience Officer, VP Member
   Experience. Do not put a generic Chief Operating Officer here.
-- For each chosen executive, extract 1-2 most recent prior firms if mentioned
-  anywhere in the evidence (LinkedIn snippet, press release, leadership bio).
-  Format past firms as clean company names ("Anthem", "UnitedHealth Group"),
-  not full sentences. Omit "past_firms" or use an empty list if none found.
+- For each chosen executive, extract the 2 most recent prior roles (NOT the
+  current role at {payer_name}) from the evidence. Format as a list of objects:
+  [{{"firm": "Anthem", "title": "VP Technology", "years": "2018-2022"}}, ...].
+  If years are not mentioned, use an empty string for "years". Omit "past_jobs"
+  or use an empty list if no prior roles are found.
+- DEPARTURE RISK: If any evidence mentions that the executive is retiring,
+  stepping down, has announced a departure, or that a successor has been named,
+  set "departure_risk": true and provide a short "departure_note" (e.g.
+  "Announced retirement by end of 2026; successor Jenny Housley named President
+  Apr 2026"). Otherwise set "departure_risk": false.
 - The `linkedin_url` must be a real linkedin.com/in/ or linkedin.com/pub/ URL
   taken VERBATIM from one of the evidence items — do not fabricate URLs.
 
@@ -1445,7 +1463,12 @@ OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
       "name": "...",
       "title": "...",
       "linkedin_url": "https://www.linkedin.com/in/...",
-      "past_firms": ["...", "..."],
+      "past_jobs": [
+        {{"firm": "...", "title": "...", "years": "..."}},
+        {{"firm": "...", "title": "...", "years": "..."}}
+      ],
+      "departure_risk": false,
+      "departure_note": "",
       "evidence_indices": [0, 3]
     }},
     "CIO": {{ ... }},
@@ -1463,7 +1486,8 @@ EVIDENCE (JSON array):
         description=description,
         expected_output=(
             'Strict JSON: {"executives": {"<Role>": {"name", "title", "linkedin_url", '
-            '"past_firms", "evidence_indices"}}, "bd_notes", "key_evidence_summary"}'
+            '"past_jobs", "departure_risk", "departure_note", "evidence_indices"}}, '
+            '"bd_notes", "key_evidence_summary"}'
         ),
         agent=__import__(
             "payer_intel.agents", fromlist=["executive_classifier_agent"]
@@ -1511,10 +1535,17 @@ EVIDENCE (JSON array):
                         linkedin_url, payer_name, role_name,
                     )
                     linkedin_url = None
-        past_firms_raw = profile.get("past_firms") or []
-        past_firms = [
-            str(f).strip() for f in past_firms_raw if str(f).strip()
-        ][:3]
+        past_jobs_raw = profile.get("past_jobs") or []
+        past_jobs: list[dict[str, str]] = []
+        for job in past_jobs_raw[:2]:
+            if isinstance(job, dict) and str(job.get("firm", "")).strip():
+                past_jobs.append({
+                    "firm": str(job.get("firm", "")).strip(),
+                    "title": str(job.get("title", "")).strip(),
+                    "years": str(job.get("years", "")).strip(),
+                })
+        departure_risk = bool(profile.get("departure_risk", False))
+        departure_note = str(profile.get("departure_note") or "").strip() or None
         evidence_indices = [
             i for i in (profile.get("evidence_indices") or [])
             if isinstance(i, int) and 0 <= i < len(evidence)
@@ -1523,7 +1554,9 @@ EVIDENCE (JSON array):
             "name": name,
             "title": (profile.get("title") or "").strip() or None,
             "linkedin_url": linkedin_url,
-            "past_firms": past_firms,
+            "past_jobs": past_jobs,
+            "departure_risk": departure_risk,
+            "departure_note": departure_note,
             "evidence_indices": evidence_indices,
         }
     return out, bd_notes, summary
@@ -1552,11 +1585,14 @@ def assemble_executive_record(
             continue
         evs = [all_evidence[i] for i in info.get("evidence_indices", [])]
         qc = exec_score(evs)
+        raw_jobs = info.get("past_jobs", [])
         profile = ExecutiveProfile(
             name=info.get("name"),
             title=info.get("title"),
             linkedin_url=info.get("linkedin_url"),
-            past_firms=info.get("past_firms", []),
+            past_jobs=[PastJob(**j) for j in raw_jobs if isinstance(j, dict)],
+            departure_risk=info.get("departure_risk", False),
+            departure_note=info.get("departure_note"),
             confidence=qc.confidence,
             confidence_note=qc.note,
             evidence=evs,
@@ -1588,10 +1624,23 @@ def _default_exec_bd_notes(rec: ExecutivePayerRecord) -> str:
     identified = [r for r, p in rec.executives.items() if p.name]
     if not identified:
         return "No executives identified — re-run with expanded search or seed leadership URL."
-    return (
+    departing = [r for r, p in rec.executives.items() if p.name and p.departure_risk]
+    notes = (
         f"{len(identified)}/5 executive roles identified ({rec.confidence.value} confidence). "
         "Validate via direct outreach before referencing in BD pitch."
     )
+    if departing:
+        roles_str = ", ".join(r.value for r in departing)
+        notes = f"[DEPARTURE RISK/RETIRING — {roles_str}] " + notes
+    all_evidence_dates = [
+        e.date for p in rec.executives.values() if p.name
+        for e in p.evidence if e.date
+    ]
+    if all_evidence_dates and not any(
+        _within_days(d, 365) for d in all_evidence_dates
+    ):
+        notes += " [Verify — all evidence >12 months old]"
+    return notes
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ from payer_intel.schema import (
     ExecutivePayerRecord,
     ExecutiveProfile,
     ExecutiveRole,
+    PastJob,
 )
 
 
@@ -28,7 +29,10 @@ def _sample_record() -> ExecutivePayerRecord:
         name="Jane Doe",
         title="President & CEO",
         linkedin_url="https://www.linkedin.com/in/jane-doe/",
-        past_firms=["Anthem", "UnitedHealth Group"],
+        past_jobs=[
+            PastJob(firm="Anthem", title="VP Technology", years="2018-2022"),
+            PastJob(firm="UnitedHealth Group", title="Director", years="2015-2018"),
+        ],
         confidence=ConfidenceScore.HIGH,
         evidence=[Evidence(source_type="leadership_page", url="https://humana.com/x")],
     )
@@ -36,7 +40,7 @@ def _sample_record() -> ExecutivePayerRecord:
         name="John Smith",
         title="Chief Information Officer",
         linkedin_url="https://www.linkedin.com/in/john-smith/",
-        past_firms=["Accenture"],
+        past_jobs=[PastJob(firm="Accenture", title="Manager", years="2012-2015")],
         confidence=ConfidenceScore.MEDIUM,
     )
     # CMO, Chief Medical, VP Experience intentionally empty
@@ -59,11 +63,12 @@ def test_export_creates_file_with_three_sheets(tmp_path: Path):
     ]
 
 
-def test_export_has_16_column_header_in_spec_order(tmp_path: Path):
+def test_export_has_50_column_header_in_spec_order(tmp_path: Path):
     out = write_excel_executive([_sample_record()], tmp_path)
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
+    assert len(header) == 50
     assert header == EXECUTIVE_EXCEL_COLUMNS
 
 
@@ -90,16 +95,16 @@ def test_export_uses_placeholder_for_missing_executives(tmp_path: Path):
     assert ws.cell(row=2, column=cmo_name_col).value == "\u2014"  # em-dash placeholder
 
 
-def test_export_aggregates_past_firms_into_column_m(tmp_path: Path):
+def test_export_writes_structured_past_jobs(tmp_path: Path):
     out = write_excel_executive([_sample_record()], tmp_path)
     wb = load_workbook(out)
     ws = wb["Executive Intelligence"]
     header = [c.value for c in ws[1]]
-    firms_col = header.index("Past Firms") + 1
-    val = ws.cell(row=2, column=firms_col).value or ""
-    assert "Anthem" in val
-    assert "UnitedHealth Group" in val
-    assert "Accenture" in val
+    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Firm") + 1).value == "Anthem"
+    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Title") + 1).value == "VP Technology"
+    assert ws.cell(row=2, column=header.index("CEO Past Job 1 Years") + 1).value == "2018-2022"
+    assert ws.cell(row=2, column=header.index("CEO Past Job 2 Firm") + 1).value == "UnitedHealth Group"
+    assert ws.cell(row=2, column=header.index("CIO Past Job 1 Firm") + 1).value == "Accenture"
 
 
 def test_coverage_dashboard_counts_identified_vs_missing(tmp_path: Path):
@@ -125,9 +130,12 @@ def test_past_firms_index_lists_each_firm_executive_pair(tmp_path: Path):
     wb = load_workbook(out)
     sheet = wb["Past Firms Index"]
     header = [c.value for c in sheet[1]]
-    assert header == ["Past Firm", "Executive Name", "Current Role", "Current Payer", "LinkedIn"]
+    assert header == [
+        "Past Firm", "Past Title", "Past Years",
+        "Executive Name", "Current Role", "Current Payer", "LinkedIn",
+    ]
     rows = list(sheet.iter_rows(min_row=2, values_only=True))
-    # CEO has 2 past firms, CIO has 1 → 3 rows total
+    # CEO has 2 past jobs, CIO has 1 → 3 rows total
     assert len(rows) == 3
     firms = {r[0] for r in rows}
     assert {"Anthem", "UnitedHealth Group", "Accenture"} <= firms

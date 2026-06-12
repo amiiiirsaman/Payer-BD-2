@@ -7,6 +7,7 @@ from payer_intel.schema import (
     ExecutivePayerRecord,
     ExecutiveProfile,
     ExecutiveRole,
+    PastJob,
 )
 
 
@@ -24,39 +25,52 @@ def test_title_map_covers_every_role():
         assert all(isinstance(t, str) and t.strip() for t in titles)
 
 
-def test_excel_columns_have_16_in_spec_order():
-    assert len(EXECUTIVE_EXCEL_COLUMNS) == 16
+def test_excel_columns_have_50_in_spec_order():
+    assert len(EXECUTIVE_EXCEL_COLUMNS) == 50
     assert EXECUTIVE_EXCEL_COLUMNS[0] == "Payer Name"
+    assert EXECUTIVE_EXCEL_COLUMNS[1] == "Payer Type"
     assert EXECUTIVE_EXCEL_COLUMNS[-1] == "BD Notes"
-    assert EXECUTIVE_EXCEL_COLUMNS[14] == "Confidence Score"
-    assert EXECUTIVE_EXCEL_COLUMNS[12] == "Past Firms"
+    assert EXECUTIVE_EXCEL_COLUMNS[-2] == "Confidence Score"
+    assert EXECUTIVE_EXCEL_COLUMNS[-3] == "Date Verified"
+    assert "CEO Past Job 1 Firm" in EXECUTIVE_EXCEL_COLUMNS
 
 
 def test_role_columns_map_to_excel_columns():
     cols = set(EXECUTIVE_EXCEL_COLUMNS)
-    for _role, name_col, link_col in EXECUTIVE_ROLE_COLUMNS:
-        assert name_col in cols
-        assert link_col in cols
+    assert set(EXECUTIVE_ROLE_COLUMNS.keys()) == set(ExecutiveRole)
+    for role, col_list in EXECUTIVE_ROLE_COLUMNS.items():
+        assert len(col_list) == 9, f"{role} should have 9 columns (3 identity + 6 past-job)"
+        for c in col_list:
+            assert c in cols
 
 
 def test_executive_profile_defaults():
     p = ExecutiveProfile()
     assert p.name is None
-    assert p.past_firms == []
+    assert p.past_jobs == []
+    assert p.departure_risk is False
+    assert p.departure_note is None
     assert p.confidence == ConfidenceScore.LOW
 
 
 def test_aggregated_past_firms_dedupes_case_insensitively():
     rec = ExecutivePayerRecord(payer_name="Humana Inc.")
     rec.executives[ExecutiveRole.CEO] = ExecutiveProfile(
-        name="Jane Doe", past_firms=["Anthem", "UnitedHealth Group"]
+        name="Jane Doe",
+        past_jobs=[
+            PastJob(firm="Anthem", title="VP", years="2015-2018"),
+            PastJob(firm="UnitedHealth Group", title="Director", years="2012-2015"),
+        ],
     )
     rec.executives[ExecutiveRole.CIO] = ExecutiveProfile(
-        name="John Smith", past_firms=["anthem", "Accenture"]  # case-insensitive dupe
+        name="John Smith",
+        past_jobs=[
+            PastJob(firm="anthem", title="Engineer", years=""),  # case-insensitive dupe
+            PastJob(firm="Accenture", title="Manager", years=""),
+        ],
     )
     out = rec.aggregated_past_firms
     assert len(out) == 3
-    # Order preserved by first occurrence, casing of first occurrence
     assert out[0] == "Anthem"
     assert "UnitedHealth Group" in out
     assert "Accenture" in out
