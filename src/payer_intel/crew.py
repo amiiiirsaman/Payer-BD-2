@@ -1126,7 +1126,8 @@ _LEADERSHIP_PATHS = (
 _APPOINTMENT_TERMS = (
     '"appointed" OR "named" OR "joins as" OR "promoted to" '
     'OR "elected" OR "announces" OR "new Chief" '
-    'OR "retire" OR "retirement" OR "successor" OR "departure" OR "steps down"'
+    'OR "retire" OR "retirement" OR "successor" OR "departure" OR "steps down" '
+    'OR "passed away" OR "deceased" OR "in memoriam"'
 )
 
 
@@ -1466,6 +1467,22 @@ Rules:
 - VP Member Experience covers: Chief Experience Officer, Chief Patient
   Engagement Officer, Chief Member/Customer Experience Officer, VP Member
   Experience. Do not put a generic Chief Operating Officer here.
+- STRICT PERSONA MATCHING: Do NOT shoehorn an executive into a persona slot
+  if their title does not match.
+  * Do NOT put a Chief Operations Officer (COO) into the CIO slot.
+  * Do NOT put a President or Chief Revenue Officer into the CMO slot just
+    because they used to be a CMO.
+  * If you cannot find a true CIO, CMO, Chief Medical Officer, or VP
+    Experience, leave that persona completely blank (OMIT it from the JSON).
+- DECEASED CHECK: If ANY evidence indicates the executive has passed away,
+  died, is deceased, or appears in an obituary / "in memoriam" notice, you
+  MUST omit them entirely — even if older evidence still lists them as the
+  active officeholder.
+- SUCCESSORS: If a CEO has announced retirement and a successor is named
+  (e.g. a new President), put the CURRENT active CEO in the CEO slot.
+  Mention the successor in `bd_notes` and `departure_note`, but do NOT force
+  the successor into a different persona slot (like CMO) just to get them on
+  the board.
 - For each chosen executive, extract the 2 most recent prior roles (NOT the
   current role at {payer_name}) from the evidence. Format as a list of objects:
   [{{"firm": "Anthem", "title": "VP Technology", "years": "2018-2022"}}, ...].

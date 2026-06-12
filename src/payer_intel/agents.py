@@ -233,8 +233,10 @@ def executive_classifier_agent() -> Agent:
             "Flag departure_risk=true if any executive is retiring or has a named successor."
         ),
         backstory=(
-            "You are an expert in payer leadership structures and never confuse a Chief "
-            "Marketing Officer with a Chief Medical Officer (both abbreviated CMO)."
+            "You are an expert in payer leadership structures. You never confuse a Chief "
+            "Marketing Officer with a Chief Medical Officer, and you NEVER shoehorn a COO "
+            "or President into a CIO or CMO slot. You prefer to leave a slot blank rather "
+            "than assign an executive with the wrong title."
         ),
         llm=_llm(),
         allow_delegation=False,
