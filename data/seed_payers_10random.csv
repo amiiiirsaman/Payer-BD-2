@@ -1,0 +1,11 @@
+payer_name,domain,payer_type,search_aliases,search_excludes
+Independence Blue Cross,ibx.com,Blues Plan,Independence Blue Cross|IBX|Independence BC,AmeriHealth Caritas|AmeriHealth New Jersey|AmeriHealth NJ
+Blue Cross and Blue Shield of Kansas City,bluekc.com,Blues Plan,Blue KC|BlueKC|BCBS Kansas City|Blue Cross Kansas City,
+Alameda Alliance for Health,alamedaalliance.org,Medicaid MCO,Alameda Alliance|AAH,
+Medical Mutual of Ohio,medmutual.com,Regional,Medical Mutual of Ohio|Medical Mutual|MedMutual,
+CareOregon,careoregon.org,Medicaid MCO,CareOregon|Care Oregon|Oregon Health Plan CareOregon,
+CalViva Health,calviva.org,Medicaid MCO,CalViva Health|CalViva|Valley Health Plan,
+BlueCross BlueShield of Tennessee,bcbst.com,Blues Plan,BCBS Tennessee|BCBST|BlueCross BlueShield TN,
+Blue Cross and Blue Shield of Louisiana,bcbsla.com,Blues Plan,BCBS Louisiana|BCBSLA|Blue Cross Louisiana,
+UnitedHealthcare,uhc.com,National,UnitedHealth Group|UHG|Optum|UnitedHealth,
+Blue Cross and Blue Shield of Kansas,bcbsks.com,Blues Plan,BCBS Kansas|BCBSKS|Blue Cross Kansas,

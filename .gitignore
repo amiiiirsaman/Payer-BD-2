@@ -1,0 +1,44 @@
+# Internal AArete instruction docs (not for the public repo)
+AArete_Executive_App_Instructions.md
+AArete_Executive_Engine_Instructions.md
+
+# Run outputs
+out/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Dev-only inspection scripts
+_check_v6_1_2.py
+_inspect_*.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Copilot local tool state
+.github/prompts/
+
+# Stale git backup dirs from re-init
+.git.backup*

@@ -1,0 +1,16 @@
+payer_name,domain,payer_type,search_aliases,search_excludes
+Humana Inc.,humana.com,National,Humana,
+Centene Corporation,centene.com,National,Centene|Fidelis Care|WellCare Health Plans,
+Elevance Health,elevancehealth.com,National,Elevance Health|Anthem|Anthem Inc,
+UnitedHealthcare,uhc.com,National,UnitedHealth Group|UHG|Optum,
+CVS Health (Aetna),aetna.com,National,Aetna|CVS Health|CVS Aetna,
+Cigna Healthcare,cigna.com,National,Cigna|Cigna Group|Cigna Global Benefits,
+Kaiser Permanente,kp.org,National,Kaiser Permanente|Kaiser,
+Molina Healthcare,molinahealthcare.com,National,Molina Healthcare|Molina,
+Blue Cross Blue Shield of Michigan,bcbsm.com,Blues Plan,BCBSM|Blue Cross Michigan,
+Blue Shield of California,blueshieldca.com,Blues Plan,Blue Shield of California|Blue Shield CA|BSC,
+Highmark Health,highmark.com,Blues Plan,Highmark Health|Highmark|Highmark BCBS,
+Independence Blue Cross,ibx.com,Blues Plan,Independence Blue Cross|IBX|Independence BC,AmeriHealth Caritas|AmeriHealth New Jersey|AmeriHealth NJ
+Florida Blue,floridablue.com,Blues Plan,Florida Blue|GuideWell|BCBS Florida|GuideWell Source|GuideWell Connect,
+HCSC,hcsc.com,Blues Plan,HCSC|Health Care Service Corporation|BCBS Illinois|BCBS Texas,
+WellCare,wellcare.com,Medicaid MCO,WellCare|WellCare Health Plans|Centene WellCare,

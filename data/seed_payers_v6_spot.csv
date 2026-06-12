@@ -1,0 +1,9 @@
+payer_name,domain,payer_type,search_aliases,search_excludes
+Humana Inc.,humana.com,National,,
+Centene Corporation,centene.com,National,,
+Elevance Health,elevancehealth.com,National,Elevance Health|Anthem|Anthem Inc|Anthem BCBS,
+Cigna Corporation,cigna.com,National,Cigna|Cigna Group|Cigna Healthcare|Evernorth,
+Independence Blue Cross,ibx.com,Blues Plan,Independence Blue Cross|IBX|Independence BC,AmeriHealth Caritas|AmeriHealth New Jersey|AmeriHealth NJ
+Florida Blue,floridablue.com,Blues Plan,Florida Blue|GuideWell|BCBS Florida|GuideWell Mutual|GuideWell Source|GuideWell Connect,
+EmblemHealth Inc.,emblemhealth.com,Regional,EmblemHealth|Emblem Health|GHI|HIP Health Plan|ConnectiCare|AdvantageCare Physicians,
+Priority Health,priorityhealth.com,Regional,Priority Health|Spectrum Health|Corewell Health,
