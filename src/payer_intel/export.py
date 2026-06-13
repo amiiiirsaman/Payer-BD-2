@@ -154,6 +154,10 @@ def _exec_record_to_rows(rec: ExecutivePayerRecord) -> list[dict[str, str]]:
     for role in ExecutiveRole:
         profile = rec.executives.get(role)
         has_exec = bool(profile and profile.name)
+        # v3.4: per-executive BD note when available, else fall back to the
+        # payer-level note. Empty slots also get a per-row note via the
+        # assemble step (e.g. "No public CIO identified for ...").
+        per_exec_note = profile.bd_note if profile and profile.bd_note else ""
         row = {
             "Payer Name": rec.payer_name,
             "Payer Type": rec.payer_type,
@@ -165,7 +169,7 @@ def _exec_record_to_rows(rec: ExecutivePayerRecord) -> list[dict[str, str]]:
             "Past Job 2 Firm": "", "Past Job 2 Title": "", "Past Job 2 Years": "",
             "Date Verified": rec.date_verified,
             "Confidence Score": profile.confidence.value if has_exec else _PLACEHOLDER,
-            "BD Notes": rec.bd_notes,
+            "BD Notes": per_exec_note or rec.bd_notes,
         }
         if has_exec and profile.past_jobs:
             j0 = profile.past_jobs[0]

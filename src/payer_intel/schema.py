@@ -112,11 +112,12 @@ EXECUTIVE_TITLE_MAP: dict[ExecutiveRole, list[str]] = {
         "CDO",
     ],
     ExecutiveRole.CMO: [
+        # v3.4: tightened. CGO / Sales-&-Marketing titles removed because they
+        # are explicitly REJECT-listed by the CMO persona definition.
         "Chief Marketing Officer",
-        "Chief Growth Officer",
-        "VP of Sales and Marketing",
-        "VP Sales and Marketing",
+        "Chief Brand Officer",
         "VP Marketing",
+        "SVP Marketing",
         "CMO",
     ],
     ExecutiveRole.CHIEF_MEDICAL: [
@@ -159,6 +160,9 @@ class ExecutiveProfile(BaseModel):
     confidence: ConfidenceScore = ConfidenceScore.LOW
     confidence_note: Optional[str] = None
     evidence: List[Evidence] = Field(default_factory=list)
+    # v3.4: per-executive BD note (background + transition + AArete angle).
+    # Falls back to ExecutivePayerRecord.bd_notes at export time when empty.
+    bd_note: str = ""
 
 
 class ExecutivePayerRecord(BaseModel):

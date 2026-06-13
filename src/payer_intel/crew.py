@@ -563,21 +563,87 @@ _DECEASED_SIGNALS: frozenset[str] = frozenset({
 
 
 def _is_known_deceased(name: str, evidence: list[Evidence]) -> bool:
-    """Drop a candidate when the evidence pairs their full name with a death
-    signal. Uses full-name match (not last-name only) so short surnames like
-    "Ho" / "Wu" still anchor, and to avoid false positives from common
-    surnames appearing in unrelated obituaries.
+    """Drop a candidate only when a deceased signal appears within 80 chars
+    AFTER the candidate's full name AND no succession-context keyword
+    appears between the name and the signal.
+
+    v3.5.1: name-anchored forward-only window + succession-context guard.
+    Catches direct obit phrasing where the name is the subject of the
+    deceased verb ("Dr. Sam Ho, longtime CMO, passed away"). Rejects
+    succession sentences where the deceased verb refers to a DIFFERENT
+    person being replaced ("Tim Noel succeeds Brian Thompson, who passed
+    away"). The succession guard checks whether words like "succeed",
+    "replace", "after the death", etc. appear between the name and the
+    signal \u2014 if so, the signal is about someone else.
     """
     name_lc = name.strip().lower()
     if len(name_lc) < 5:
         return False
+    forward_window = 80
+    name_len = len(name_lc)
     for ev in evidence:
-        text = ((ev.full_text or "") + " " + (ev.snippet or "")).lower()
-        if name_lc not in text:
+        text_lc = ((ev.full_text or "") + " " + (ev.snippet or "")).lower()
+        if name_lc not in text_lc:
             continue
-        if any(sig in text for sig in _DECEASED_SIGNALS):
-            return True
+        start = 0
+        while True:
+            pos = text_lc.find(name_lc, start)
+            if pos == -1:
+                break
+            after_name = text_lc[pos + name_len : pos + name_len + forward_window]
+            for sig in _DECEASED_SIGNALS:
+                sig_pos = after_name.find(sig)
+                if sig_pos == -1:
+                    continue
+                between = after_name[:sig_pos]
+                if any(kw in between for kw in _SUCCESSION_CONTEXT_KEYWORDS):
+                    # Signal is about a different person being replaced.
+                    continue
+                return True
+            start = pos + 1
     return False
+
+
+# v3.5.1: succession-context guard. If any of these words appear between
+# the candidate's name and a deceased signal, the signal is about a
+# DIFFERENT person (the one being replaced), not the candidate.
+_SUCCESSION_CONTEXT_KEYWORDS: frozenset[str] = frozenset({
+    # explicit succession verbs
+    "succeed", "succeeding", "succeeds", "succession",
+    "replace", "replacing", "replaces",
+    # temporal / causal phrasings that mark a successor announcement
+    "following", "after the", "in the wake", "wake of",
+    "tragic", "untimely",
+    # explicit "after/following the death" phrasings
+    "after the death", "following the death", "following the passing",
+    # memorials / honors
+    "in memory of", "in honor of",
+    # appointment-phrasing
+    "appointed to replace", "named to replace", "named to succeed",
+    "predecessor", "former ceo", "former president", "previous ceo",
+})
+
+
+_ALREADY_DEPARTED_SIGNALS: frozenset[str] = frozenset({
+    "has departed", "have departed", "left the company", "no longer with",
+    "stepped down", "has left", "have left", "departed in", "departed from",
+    "is no longer", "has since left", "recently departed",
+})
+
+
+def _is_already_departed(departure_note: str | None) -> bool:
+    """Return True when the departure note describes a past event (the exec
+    is already gone), as opposed to an announced future retirement.
+
+    Used to blank the slot in `assemble_executive_record` so BCBSLA's
+    Tina Bourgeois ("departed in March 2026") shows '-' rather than her name,
+    while a future-tense retirement ("retiring end of 2026") keeps the exec
+    in their seat.
+    """
+    if not departure_note:
+        return False
+    note_lc = departure_note.lower()
+    return any(sig in note_lc for sig in _ALREADY_DEPARTED_SIGNALS)
 
 
 # Salesforce blog category/tag/author listings and paginated index pages
@@ -1278,6 +1344,24 @@ def gather_executive_evidence(
             )
         )
 
+    # ── Career-history evidence (1 call) ───────────────────────────────────
+    # Lifts past-jobs fill rate by surfacing the "previously / prior to
+    # joining / formerly" phrases the prompt instructs the LLM to look for.
+    career_query = (
+        f"{name_clause} "
+        f'("previously" OR "prior to joining" OR "before joining" '
+        f'OR "formerly" OR "joined from" OR "career includes")'
+    )
+    for r in _safe_search(client.google, career_query, num=10):
+        evidence.append(
+            Evidence(
+                source_type="executive_news",
+                url=r.get("link", "") or "",
+                snippet=(r.get("snippet") or "")[:1500],
+                date=r.get("date"),
+            )
+        )
+
     # Dedupe by (source_type, url)
     seen: set[tuple[str, str]] = set()
     out: list[Evidence] = []
@@ -1347,8 +1431,7 @@ _TITLE_TO_ROLE_PATTERNS: list[tuple[re.Pattern[str], ExecutiveRole]] = [
     (re.compile(r"\bCIO\b"), ExecutiveRole.CIO),
     (re.compile(r"\bCTO\b"), ExecutiveRole.CIO),
     (re.compile(r"\bChief\s+Marketing\s+Officer\b", re.I), ExecutiveRole.CMO),
-    (re.compile(r"\bChief\s+Growth\s+Officer\b", re.I), ExecutiveRole.CMO),
-    (re.compile(r"\bVP\s+(?:of\s+)?Sales\s+and\s+Marketing\b", re.I), ExecutiveRole.CMO),
+    (re.compile(r"\bChief\s+Brand\s+Officer\b", re.I), ExecutiveRole.CMO),
     (re.compile(r"\bChief\s+Experience\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Patient\s+Engagement\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Member\s+Experience\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
@@ -1385,6 +1468,92 @@ def _title_to_role(title: str) -> ExecutiveRole | None:
         if pat.search(title):
             return role
     return None
+
+
+# v3.4: Python-level title rejection per persona. The LLM prompt already
+# carries STRICT REJECT lists for CMO and VP Experience, but the LLM
+# occasionally ignores them. This filter is the final gate.
+_PERSONA_TITLE_REJECT: dict[ExecutiveRole, frozenset[str]] = {
+    ExecutiveRole.CMO: frozenset({
+        "growth officer", "revenue officer", "commercial officer",
+        "strategy officer", "operating officer", "operations officer",
+        "financial officer", "legal officer", "compliance officer",
+    }),
+    ExecutiveRole.VP_EXPERIENCE: frozenset({
+        "quality", "population health", "clinical", "finance",
+        "strategy", "growth", "revenue", "legal", "compliance",
+        "operations", "supply chain",
+    }),
+}
+
+# v3.5: universal reject list applied to ALL non-CEO personas. Stops a
+# President / CEO / COO / CFO / GC from being placed in a CIO/CMO/CM/VPX
+# slot just because the LLM found a prior CMO title on their bio.
+# Compound "president" forms only — bare "president" would substring-match
+# "Vice President" and break legitimate VP titles.
+_PERSONA_TITLE_REJECT_UNIVERSAL: frozenset[str] = frozenset({
+    "president and ceo", "president & ceo", "president-elect",
+    "chief executive officer",
+    "chief operating officer",
+    "chief financial officer",
+    "general counsel", "chief legal officer",
+})
+
+
+def _title_passes_persona_filter(role: ExecutiveRole, title: str | None) -> bool:
+    """Return False if the title contains a hard-reject keyword for this persona.
+
+    Stops Chief Growth Officer / Quality VP / etc. from sneaking into the
+    CMO or VP Experience slots when the LLM ignores the prompt REJECT list.
+    v3.5: also applies a universal reject for top-of-org titles when the
+    persona is anything other than CEO (Housley "President" → CMO case).
+    Personas without an entry in `_PERSONA_TITLE_REJECT` (CIO, Chief
+    Medical) only run the universal gate.
+    """
+    title_lc = (title or "").lower()
+    if role != ExecutiveRole.CEO and any(
+        term in title_lc for term in _PERSONA_TITLE_REJECT_UNIVERSAL
+    ):
+        return False
+    reject_terms = _PERSONA_TITLE_REJECT.get(role)
+    if not reject_terms:
+        return True
+    return not any(term in title_lc for term in reject_terms)
+
+
+# v3.5: LinkedIn URL format gate. Catches non-LinkedIn URLs (e.g. YouTube)
+# that survive the existing evidence-presence check because the same URL
+# happens to appear elsewhere in the evidence blob.
+_LINKEDIN_URL_RE = re.compile(
+    r"^https?://(?:www\.)?linkedin\.com/(?:in|pub)/[A-Za-z0-9_\-%./]+/?$",
+    re.IGNORECASE,
+)
+
+
+def _validate_linkedin_url(url: str | None) -> str | None:
+    """Return the URL if it looks like a real LinkedIn profile URL, else None."""
+    if not url:
+        return None
+    url_clean = url.strip()
+    if _LINKEDIN_URL_RE.match(url_clean):
+        return url_clean
+    log.info("Rejecting invalid LinkedIn URL: %s", url_clean)
+    return None
+
+
+# v3.5: education-firm filter for past_jobs. Universities / colleges /
+# schools etc. are not professional employment positions.
+_EDUCATION_TERMS: frozenset[str] = frozenset({
+    "university", "college", "school", "institute", "academy",
+    "polytechnic", "seminary", "conservatory", "education",
+})
+
+
+def _is_education_firm(firm: str | None) -> bool:
+    if not firm:
+        return False
+    firm_lc = firm.lower()
+    return any(term in firm_lc for term in _EDUCATION_TERMS)
 
 
 def _extract_executives_deterministic(
@@ -1508,6 +1677,24 @@ Rules:
 - Disambiguate CMO carefully: "Chief Marketing Officer" → CMO persona;
   "Chief Medical Officer" → Chief Medical persona. Never put a marketing
   executive in Chief Medical or vice versa.
+- CMO PERSONA — STRICT DEFINITION: the CMO slot is the executive responsible
+  for marketing, brand, and member/customer acquisition strategy.
+  * ACCEPT titles containing: "Chief Marketing Officer", "VP Marketing",
+    "SVP Marketing", "Chief Brand Officer".
+  * REJECT titles containing: "Chief Growth Officer", "Chief Revenue Officer",
+    "Chief Commercial Officer", "Chief Strategy Officer", "Chief Operating
+    Officer". A Growth or Revenue Officer is NOT a CMO.
+  * If no true CMO exists, OMIT the CMO persona from the JSON.
+- VP EXPERIENCE PERSONA — STRICT DEFINITION: the VP Experience slot is the
+  executive responsible for member satisfaction, customer experience, NPS,
+  or digital engagement.
+  * ACCEPT titles containing: "Chief Experience Officer", "VP Customer
+    Experience", "VP Member Experience", "VP Digital Experience",
+    "Chief Digital Officer", "VP Engagement".
+  * REJECT titles containing: "Quality", "Population Health", "Clinical",
+    "Operations", "Finance", "Strategy", "Growth", "Revenue". A Quality
+    VP or Population Health VP is NOT a VP Experience.
+  * If no true VP Experience exists, OMIT the persona from the JSON.
 - VP Member Experience covers: Chief Experience Officer, Chief Patient
   Engagement Officer, Chief Member/Customer Experience Officer, VP Member
   Experience. Do not put a generic Chief Operating Officer here.
@@ -1543,10 +1730,17 @@ Rules:
     company, that COO role is Past Job 1).
   * Do NOT skip over recent internal promotions to pull 10-year-old jobs
     from previous employers.
+  * Search the evidence carefully for phrases like "previously", "prior
+    to joining", "before joining", "formerly", "joined from", "came from",
+    "background includes", "career includes".
+  * If the executive has spent their entire career at {payer_name}, use
+    their two most recent INTERNAL roles (different titles / departments)
+    and set "years" to "internal promotion".
+  * Do NOT return an empty list unless you have absolutely no career
+    history evidence whatsoever.
   * Format as a list of objects:
   [{{"firm": "Anthem", "title": "VP Technology", "years": "2018-2022"}}, ...].
-  If years are not mentioned, use an empty string for "years". Omit "past_jobs"
-  or use an empty list if no prior roles are found.
+  If years are not mentioned, use an empty string for "years".
 - DEPARTURE RISK: If any evidence mentions that the executive is retiring,
   stepping down, has announced a departure, or that a successor has been named,
   set "departure_risk": true and provide a short "departure_note" (e.g.
@@ -1554,6 +1748,16 @@ Rules:
   Apr 2026"). Otherwise set "departure_risk": false.
 - The `linkedin_url` must be a real linkedin.com/in/ or linkedin.com/pub/ URL
   taken VERBATIM from one of the evidence items — do not fabricate URLs.
+- TITLE FORMAT (v3.5): For any non-CEO persona (CIO, CMO, Chief Medical,
+  VP Experience), NEVER write a bare title of "President", "President and
+  CEO", or "Chief Executive Officer". If the only available title for a
+  candidate is one of those top-of-org titles, OMIT that candidate from
+  the non-CEO persona slot entirely — they belong in the CEO slot, not
+  here.
+- PAST_JOBS — NO SCHOOLS (v3.5): Educational institutions (universities,
+  colleges, schools, institutes, academies, polytechnics, seminaries,
+  conservatories) are NOT past jobs. Do not include them in `past_jobs`.
+  Past_jobs must be professional employment positions only.
 
 REGEX PRE-EXTRACTION (Layer 1 candidates from leadership-page bodies):
 {regex_blob}
@@ -1567,6 +1771,23 @@ clearly contradicts.
 BD_NOTES guidance: a 1-2 sentence strategic note for the BD analyst noting
 any recent leadership changes, warm-intro opportunities (e.g. "CIO recently
 joined from Anthem"), or tenure signals ("CMO in role 5+ years").
+
+PER-EXECUTIVE bd_note guidance (v3.4 — REQUIRED for every identified exec):
+For each executive you place into a persona slot, also write a `bd_note`
+that is SPECIFIC to that individual (NOT a copy of the payer-level
+`bd_notes`). The per-exec `bd_note` must be 2-3 sentences:
+  1. Sentence 1: this executive's background or tenure at {payer_name}
+     (e.g. "Promoted from COO in March 2023 after 8 years internal tenure.").
+  2. Sentence 2: any relevant transition, initiative, or news specific to
+     this person (e.g. "Leading the post-merger integration with Cigna.").
+     Skip this sentence if no news exists; do NOT invent.
+  3. Sentence 3: an AArete engagement angle tailored to this person's role
+     (e.g. "New CIO from outside the org — early window for AArete cost
+     reduction analytics and IT modernization conversations.").
+Forbidden: starting the per-exec `bd_note` with "The payer ...", "{payer_name}
+has ...", or copying the payer-level `bd_notes` text verbatim. If the bd_note
+would just restate the payer-level summary, write a shorter individual note
+instead (background + engagement angle, omit transition sentence).
 
 OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
 {{
@@ -1582,7 +1803,8 @@ OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
       ],
       "departure_risk": false,
       "departure_note": "",
-      "evidence_indices": [0, 3]
+      "evidence_indices": [0, 3],
+      "bd_note": "2-3 sentence individual note: background, transition/news, AArete angle"
     }},
     "CIO": {{ ... }},
     ...
@@ -1659,6 +1881,15 @@ EVIDENCE (JSON array):
                 name, role_name, employer, payer_name,
             )
             continue
+        # v3.4: Python-level persona title gate. Hard-rejects e.g. a Chief
+        # Growth Officer in the CMO slot or a Quality VP in VP Experience.
+        title_for_filter = (profile.get("title") or "").strip()
+        if not _title_passes_persona_filter(role, title_for_filter):
+            log.warning(
+                "Dropping %s (%s) for %s: title %r fails persona reject filter",
+                name, role_name, payer_name, title_for_filter,
+            )
+            continue
         linkedin_url = (profile.get("linkedin_url") or "").strip() or None
         # Reject hallucinated LinkedIn URLs (must appear in evidence)
         if linkedin_url:
@@ -1673,15 +1904,29 @@ EVIDENCE (JSON array):
                         linkedin_url, payer_name, role_name,
                     )
                     linkedin_url = None
+        # v3.5: hard URL-format gate. Catches non-LinkedIn URLs (e.g.
+        # YouTube) that survive the evidence-presence check because the
+        # bad URL happens to appear elsewhere in the evidence blob.
+        linkedin_url = _validate_linkedin_url(linkedin_url)
         past_jobs_raw = profile.get("past_jobs") or []
         past_jobs: list[dict[str, str]] = []
-        for job in past_jobs_raw[:2]:
-            if isinstance(job, dict) and str(job.get("firm", "")).strip():
-                past_jobs.append({
-                    "firm": str(job.get("firm", "")).strip(),
-                    "title": str(job.get("title", "")).strip(),
-                    "years": str(job.get("years", "")).strip(),
-                })
+        # v3.5: filter education entries AND keep up to 2 valid jobs (do
+        # not lose slot 2 if slot 1 was an education entry).
+        for job in past_jobs_raw:
+            if len(past_jobs) >= 2:
+                break
+            if not isinstance(job, dict):
+                continue
+            firm = str(job.get("firm", "")).strip()
+            if not firm:
+                continue
+            if _is_education_firm(firm):
+                continue
+            past_jobs.append({
+                "firm": firm,
+                "title": str(job.get("title", "")).strip(),
+                "years": str(job.get("years", "")).strip(),
+            })
         departure_risk = bool(profile.get("departure_risk", False))
         departure_note = str(profile.get("departure_note") or "").strip() or None
         evidence_indices = [
@@ -1696,6 +1941,7 @@ EVIDENCE (JSON array):
             "departure_risk": departure_risk,
             "departure_note": departure_note,
             "evidence_indices": evidence_indices,
+            "bd_note": str(profile.get("bd_note") or "").strip(),
         }
     return out, bd_notes, summary
 
@@ -1724,16 +1970,20 @@ def assemble_executive_record(
         evs = [all_evidence[i] for i in info.get("evidence_indices", [])]
         qc = exec_score(evs)
         raw_jobs = info.get("past_jobs", [])
+        departure_risk = info.get("departure_risk", False)
+        departure_note = info.get("departure_note")
+        already_departed = departure_risk and _is_already_departed(departure_note)
         profile = ExecutiveProfile(
-            name=info.get("name"),
-            title=info.get("title"),
-            linkedin_url=info.get("linkedin_url"),
+            name=None if already_departed else info.get("name"),
+            title=None if already_departed else info.get("title"),
+            linkedin_url=None if already_departed else info.get("linkedin_url"),
             past_jobs=[PastJob(**j) for j in raw_jobs if isinstance(j, dict)],
-            departure_risk=info.get("departure_risk", False),
-            departure_note=info.get("departure_note"),
+            departure_risk=departure_risk,
+            departure_note=departure_note,
             confidence=qc.confidence,
             confidence_note=qc.note,
             evidence=evs,
+            bd_note="" if already_departed else (info.get("bd_note") or ""),
         )
         rec.executives[role] = profile
         per_exec_conf.append(qc.confidence)
@@ -1755,18 +2005,59 @@ def assemble_executive_record(
     rec.date_verified = datetime.utcnow().strftime("%Y-%m-%d")
     rec.bd_notes = bd_notes or _default_exec_bd_notes(rec)
     rec.key_evidence = key_evidence_summary
+    # v3.4: per-row fallback note for empty slots (e.g. "No public CIO
+    # identified for X. Consider targeting the CEO or COO for technology
+    # conversations."). Done AFTER the payer-level bd_notes is finalized so
+    # the empty-slot text references the correct payer name.
+    _populate_empty_slot_bd_notes(rec)
     return rec
+
+
+_EMPTY_SLOT_TOPIC: dict[ExecutiveRole, str] = {
+    ExecutiveRole.CIO: "technology",
+    ExecutiveRole.CMO: "marketing",
+    ExecutiveRole.CHIEF_MEDICAL: "clinical and quality",
+    ExecutiveRole.VP_EXPERIENCE: "member experience",
+}
+
+
+def _populate_empty_slot_bd_notes(rec: ExecutivePayerRecord) -> None:
+    """Write a per-row fallback bd_note for personas with no identified exec.
+
+    Skips CEO (CEO empty is rare and best left to the payer-level note).
+    Skips already-populated bd_notes so retried/filled slots are untouched.
+    """
+    for role, topic in _EMPTY_SLOT_TOPIC.items():
+        profile = rec.executives.get(role)
+        if profile is None:
+            continue
+        if profile.name or profile.bd_note:
+            continue
+        profile.bd_note = (
+            f"No public {role.value} identified for {rec.payer_name}. "
+            f"Consider targeting the CEO or COO for {topic} conversations."
+        )
 
 
 def _default_exec_bd_notes(rec: ExecutivePayerRecord) -> str:
     identified = [r for r, p in rec.executives.items() if p.name]
     if not identified:
         return "No executives identified — re-run with expanded search or seed leadership URL."
-    departing = [r for r, p in rec.executives.items() if p.name and p.departure_risk]
+    vacant = [
+        r for r, p in rec.executives.items()
+        if p.departure_risk and not p.name
+    ]
+    departing = [
+        r for r, p in rec.executives.items()
+        if p.name and p.departure_risk
+    ]
     notes = (
         f"{len(identified)}/5 executive roles identified ({rec.confidence.value} confidence). "
         "Validate via direct outreach before referencing in BD pitch."
     )
+    if vacant:
+        roles_str = ", ".join(r.value for r in vacant)
+        notes = f"[DEPARTED — slot vacant: {roles_str}] " + notes
     if departing:
         roles_str = ", ".join(r.value for r in departing)
         notes = f"[DEPARTURE RISK/RETIRING — {roles_str}] " + notes
@@ -1779,6 +2070,97 @@ def _default_exec_bd_notes(rec: ExecutivePayerRecord) -> str:
     ):
         notes += " [Verify — all evidence >12 months old]"
     return notes
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4 — Empty-slot retry for large payers
+# ─────────────────────────────────────────────────────────────────────────────
+# Small Medicaid MCOs frequently don't publish a named CIO/CMO/VPX, so retry
+# is wasteful. Match on lowercase substring of payer name.
+_SMALL_PAYERS_FOR_RETRY: frozenset[str] = frozenset({
+    "alameda alliance", "calviva", "careoregon",
+})
+
+_RETRY_PERSONA_QUERY: dict[ExecutiveRole, str] = {
+    ExecutiveRole.CIO: '"Chief Information Officer" OR "CIO"',
+    ExecutiveRole.CMO: '"Chief Marketing Officer"',
+    ExecutiveRole.CHIEF_MEDICAL: '"Chief Medical Officer" OR "CMO"',
+    ExecutiveRole.VP_EXPERIENCE: (
+        '"Chief Experience Officer" OR "VP Customer Experience" '
+        'OR "VP Member Experience"'
+    ),
+}
+
+_RETRY_TARGET_ROLES: tuple[ExecutiveRole, ...] = (
+    ExecutiveRole.CIO,
+    ExecutiveRole.CMO,
+    ExecutiveRole.CHIEF_MEDICAL,
+    ExecutiveRole.VP_EXPERIENCE,
+)
+
+_MAX_RETRIES_PER_PAYER = 3
+
+# v3.5: cross-persona deduplication. If the LLM places the same executive
+# in two slots (e.g. Mike Gerrish in BCBSK CMO AND VP Experience because
+# his title is "Chief Marketing and Experience Officer"), keep only the
+# higher-priority slot.
+_PERSONA_PRIORITY: tuple[ExecutiveRole, ...] = (
+    ExecutiveRole.CEO,
+    ExecutiveRole.CHIEF_MEDICAL,
+    ExecutiveRole.CIO,
+    ExecutiveRole.CMO,
+    ExecutiveRole.VP_EXPERIENCE,
+)
+
+
+def _deduplicate_personas(
+    classified: dict[ExecutiveRole, dict],
+) -> dict[ExecutiveRole, dict]:
+    """Drop lower-priority duplicates when the same name appears in two slots."""
+    seen: dict[str, ExecutiveRole] = {}
+    for role in _PERSONA_PRIORITY:
+        info = classified.get(role)
+        if not info:
+            continue
+        name = (info.get("name") or "").strip().lower()
+        if not name:
+            continue
+        if name in seen:
+            log.warning(
+                "Deduplicating %s: already in %s slot, clearing %s slot",
+                info.get("name"), seen[name].value, role.value,
+            )
+            classified.pop(role, None)
+        else:
+            seen[name] = role
+    return classified
+
+
+def _retry_empty_slot(
+    payer: dict[str, str], role: ExecutiveRole, client: SearchApiClient
+) -> list[Evidence]:
+    """Run one targeted Google search for a missing persona. Returns evidence
+    items (may be empty). Caller passes the evidence to the standard
+    classifier so all validation guards (deceased, employer-match, title
+    filter) re-run on retry results.
+    """
+    payer_name = payer["payer_name"]
+    query_term = _RETRY_PERSONA_QUERY.get(role, role.value)
+    query = (
+        f'"{payer_name}" {query_term} '
+        f"(site:linkedin.com OR site:beckerspayer.com OR site:modernhealthcare.com)"
+    )
+    out: list[Evidence] = []
+    for r in _safe_search(client.google, query, num=5):
+        out.append(
+            Evidence(
+                source_type="executive_news",
+                url=r.get("link", "") or "",
+                snippet=(r.get("snippet") or "")[:1500],
+                date=r.get("date"),
+            )
+        )
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1796,6 +2178,40 @@ def run_executive(seed_path: Path, out_dir: Path) -> Path:
             classified, bd_notes, summary = _classify_executives_with_llm(p, evidence)
         else:
             classified, bd_notes, summary = {}, "", ""
+        # v3.5: dedup after the initial pass so a duplicate doesn't get
+        # retried (e.g. CMO=Gerrish and VPX=Gerrish → clear VPX, then
+        # retry can run a fresh VPX search).
+        classified = _deduplicate_personas(classified)
+
+        # v3.4: one-shot targeted retry for missing critical personas at
+        # large payers. Small Medicaid MCOs are skipped because they often
+        # have no named CIO/CMO/VPX and retries are wasted SearchApi quota.
+        payer_name_lc = p["payer_name"].lower()
+        is_small = any(s in payer_name_lc for s in _SMALL_PAYERS_FOR_RETRY)
+        if evidence and not is_small:
+            retries_used = 0
+            for role in _RETRY_TARGET_ROLES:
+                if retries_used >= _MAX_RETRIES_PER_PAYER:
+                    break
+                if role in classified:
+                    continue
+                retry_ev = _retry_empty_slot(p, role, client)
+                retries_used += 1
+                if not retry_ev:
+                    continue
+                # Append retry evidence so source_urls reflect the broader search.
+                evidence.extend(retry_ev)
+                retry_classified, _rbd, _rsum = _classify_executives_with_llm(p, retry_ev)
+                if role in retry_classified:
+                    classified[role] = retry_classified[role]
+                    log.info(
+                        "Recovered %s for %s via empty-slot retry",
+                        role.value, p["payer_name"],
+                    )
+            # v3.5: dedup again after retries — a retry could have pulled
+            # back the same person already claimed by a higher-priority slot.
+            classified = _deduplicate_personas(classified)
+
         rec = assemble_executive_record(p, classified, evidence, bd_notes, summary)
         records.append(rec)
 

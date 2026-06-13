@@ -1,0 +1,113 @@
+# Executive Intelligence Engine: v3.5.1 — Tim Noel Deceased Guard Fix
+
+## Root Cause (confirmed by reading live code)
+
+The current `_is_known_deceased` function in `crew.py` (lines ~565–578) uses a **document-level** check:
+
+```python
+for ev in evidence:
+    text = ((ev.full_text or "") + " " + (ev.snippet or "")).lower()
+    if name_lc not in text:
+        continue
+    if any(sig in text for sig in _DECEASED_SIGNALS):
+        return True   # ← fires if BOTH appear anywhere in the same document
+```
+
+The failure pattern is exactly: `"…Tim Noel succeeds Brian Thompson, who passed away in December 2024…"` — the name `"tim noel"` and the signal `"passed away"` are in the same sentence, well within 150 characters of each other, but **Tim Noel is not the subject of the deceased verb**. The 150-char proximity window from v3.5 made it worse, not better, because it tightened the window to exactly where the succession sentence lives.
+
+## The Correct Fix: Name-Anchored Forward-Only Signal Check (Patch A)
+
+The pattern that correctly identifies a deceased executive is:
+> `"Sam Ho, longtime CMO, passed away"` — the name appears **immediately before** the signal (within ~60 chars **after** the name).
+
+The pattern that is a false positive is:
+> `"Tim Noel succeeds Brian Thompson, who passed away"` — the name appears **before** a clause about a **different person** dying.
+
+The fix: only fire the deceased guard when the signal appears **within 60 characters AFTER the candidate's name**, not before it and not in a broad window around it.
+
+---
+
+## Copilot Instruction — Copy and paste everything below this line
+
+In `src/payer_intel/crew.py`, replace the entire `_is_known_deceased` function (currently at approximately lines 565–578) with the following:
+
+```python
+def _is_known_deceased(name: str, evidence: list[Evidence]) -> bool:
+    """Drop a candidate only when a deceased signal appears within 60 characters
+    AFTER the candidate's full name in the evidence text.
+
+    This name-anchored forward-only check correctly catches:
+        "Sam Ho, longtime CMO, passed away last month"   → TRUE  (signal after name)
+
+    And correctly rejects succession sentences like:
+        "Tim Noel succeeds Brian Thompson, who passed away"  → FALSE  (signal is about Thompson, not Noel)
+        "In memory of Brian Thompson — Tim Noel appointed"   → FALSE  (signal is before Noel's name)
+
+    FORWARD_WINDOW: 60 chars after the end of the name match.
+    """
+    name_lc = name.strip().lower()
+    if len(name_lc) < 5:
+        return False
+    FORWARD_WINDOW = 60  # chars after the end of the name
+    for ev in evidence:
+        text = ((ev.full_text or "") + " " + (ev.snippet or "")).lower()
+        start = 0
+        while True:
+            pos = text.find(name_lc, start)
+            if pos == -1:
+                break
+            # Only look FORWARD from the end of the name
+            after_name = text[pos + len(name_lc): pos + len(name_lc) + FORWARD_WINDOW]
+            if any(sig in after_name for sig in _DECEASED_SIGNALS):
+                return True
+            start = pos + 1
+    return False
+```
+
+### Update the unit test
+
+In `tests/test_executive_smoke.py`, update the `_is_known_deceased` test to cover the succession-sentence false-positive case:
+
+```python
+def test_is_known_deceased_rejects_succession_sentence():
+    """Tim Noel must NOT be flagged when the evidence is a succession announcement."""
+    from payer_intel.crew import _is_known_deceased, Evidence
+    succession_text = (
+        "UnitedHealthcare has appointed Tim Noel as CEO, succeeding Brian Thompson, "
+        "who passed away in December 2024 after a tragic incident."
+    )
+    ev = Evidence(snippet=succession_text, full_text=succession_text, url="https://example.com", date="2025-01-10")
+    assert not _is_known_deceased("Tim Noel", [ev]), (
+        "Tim Noel should NOT be flagged as deceased in a succession announcement"
+    )
+
+def test_is_known_deceased_catches_direct_obituary():
+    """Sam Ho must still be flagged when the evidence directly states he passed away."""
+    from payer_intel.crew import _is_known_deceased, Evidence
+    obituary_text = (
+        "UnitedHealthcare Chief Medical Officer Sam Ho passed away on January 15, 2026, "
+        "after a brief illness. He served the organization for over 20 years."
+    )
+    ev = Evidence(snippet=obituary_text, full_text=obituary_text, url="https://example.com", date="2026-01-20")
+    assert _is_known_deceased("Sam Ho", [ev]), (
+        "Sam Ho should be flagged as deceased when the evidence directly states he passed away"
+    )
+```
+
+### Run and ship
+
+```bash
+# Run tests
+pytest tests/ -x -q
+
+# Run single-payer UHC re-run to confirm Tim Noel is back
+python main.py --mode executive --seed data/seed_payers_uhc_only.csv --out out/exec_uhc_v351
+
+# If Tim Noel is present in the output, run full 10-payer to confirm no regressions
+python main.py --mode executive --seed data/seed_payers_10random.csv --out out/exec10_v3_5_1
+
+# Commit
+git add -A
+git commit -m "fix(v3.5.1): name-anchored forward-only deceased guard — fixes Tim Noel false positive"
+git push origin main
+```
