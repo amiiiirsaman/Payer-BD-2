@@ -1276,6 +1276,19 @@ def gather_executive_evidence(
                 )
             )
 
+        # v3.8: direct fetch of known leadership paths. Google often fails to
+        # index payer leadership pages; _enrich_executive_pages downstream
+        # will pull the page body for any URL whose host matches payer_domain.
+        for path in _LEADERSHIP_PATHS:
+            evidence.append(
+                Evidence(
+                    source_type="leadership_page",
+                    url=f"https://{domain}/{path}",
+                    snippet="",
+                    date=None,
+                )
+            )
+
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
         f"{name_clause} {_APPOINTMENT_TERMS} "
@@ -2163,9 +2176,13 @@ def _retry_empty_slot(
     """
     payer_name = payer["payer_name"]
     query_term = _RETRY_PERSONA_QUERY.get(role, role.value)
+    # v3.8: include the payer's own domain so /leadership and press-release
+    # pages on the payer site are returned alongside third-party trade press.
+    domain = (payer.get("domain") or "").strip().lower()
+    domain_clause = f" OR site:{domain}" if domain else ""
     query = (
         f'"{payer_name}" {query_term} '
-        f"(site:linkedin.com OR site:beckerspayer.com OR site:modernhealthcare.com)"
+        f"(site:linkedin.com OR site:beckerspayer.com OR site:modernhealthcare.com{domain_clause})"
     )
     out: list[Evidence] = []
     for r in _safe_search(client.google, query, num=5):
