@@ -110,6 +110,8 @@ EXECUTIVE_TITLE_MAP: dict[ExecutiveRole, list[str]] = {
         "CIO",
         "CTO",
         "CDO",
+        "CIDO",
+        "CDIO",
     ],
     ExecutiveRole.CMO: [
         # v3.4: tightened. CGO / Sales-&-Marketing titles removed because they
@@ -136,6 +138,14 @@ EXECUTIVE_TITLE_MAP: dict[ExecutiveRole, list[str]] = {
         "VP of Member Experience",
         "VP Customer Experience",
         "CXO",
+        "VP Consumer Experience",
+        "Chief Consumer Officer",
+        "VP Member Services",
+        "VP of Consumer Experience",
+        "SVP Member Experience",
+        "SVP Consumer Experience",
+        "SVP Experience",
+        "VP Digital Engagement",
     ],
 }
 

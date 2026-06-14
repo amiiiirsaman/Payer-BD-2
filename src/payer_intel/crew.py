@@ -1284,7 +1284,7 @@ def gather_executive_evidence(
         f"OR \"Chief Experience\")"
     )
     for r in _safe_search(
-        client.google_news, appointment_query, time_range="qdr:y", num=15
+        client.google_news, appointment_query, time_range="qdr:2y", num=15
     ):
         evidence.append(
             Evidence(
@@ -1437,6 +1437,11 @@ _TITLE_TO_ROLE_PATTERNS: list[tuple[re.Pattern[str], ExecutiveRole]] = [
     (re.compile(r"\bChief\s+Member\s+Experience\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Customer\s+Experience\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bVP\s+(?:of\s+)?Member\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bVP\s+(?:of\s+)?Customer\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bVP\s+(?:of\s+)?Consumer\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bChief\s+Consumer\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bSVP\s+(?:Member|Consumer)\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bVP\s+Member\s+Services\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Executive\s+Officer\b", re.I), ExecutiveRole.CEO),
     (re.compile(r"\b(?:Market|Plan)\s+President\b", re.I), ExecutiveRole.CEO),
     (re.compile(r"\bPresident\s+(?:&|and)\s+CEO\b", re.I), ExecutiveRole.CEO),
@@ -1672,6 +1677,17 @@ Rules:
 - A press release dated within the last 6 months announcing an appointment
   (e.g. "{payer_name} appoints Jane Doe as Chief Information Officer") is
   authoritative — prefer it over older LinkedIn snippets with a different name.
+- DATE WEIGHTING — MANDATORY: Before assigning any executive, check the `date`
+  field of every evidence item that mentions them. If ANY evidence item dated
+  2024-01-01 or later contains the phrases "stepped down", "departed", "left",
+  "retired", "no longer", "resigned", "successor named", or "passed away" for
+  that person, you MUST treat them as no longer in the role and OMIT them from
+  the output entirely — even if an older LinkedIn snippet or third-party
+  directory still lists them as the active holder. A 2025 or 2026 departure
+  announcement always overrides a 2022 or 2023 LinkedIn profile.
+- RECENCY PREFERENCE: When two candidates both have evidence, prefer the one
+  whose most recent evidence item has the later `date`. A candidate with a
+  2026-dated press release beats one with only a 2023 LinkedIn snippet.
 - If two candidates both claim the same role, pick the one with (a) the most
   recent corroborating press release, OR (b) the LinkedIn "Present" tenure.
 - Disambiguate CMO carefully: "Chief Marketing Officer" → CMO persona;
@@ -1689,8 +1705,9 @@ Rules:
   executive responsible for member satisfaction, customer experience, NPS,
   or digital engagement.
   * ACCEPT titles containing: "Chief Experience Officer", "VP Customer
-    Experience", "VP Member Experience", "VP Digital Experience",
-    "Chief Digital Officer", "VP Engagement".
+    Experience", "VP Member Experience", "VP Consumer Experience",
+    "Chief Consumer Officer", "VP Member Services", "VP Digital Experience",
+    "Chief Digital Officer", "VP Engagement", "SVP Member Experience".
   * REJECT titles containing: "Quality", "Population Health", "Clinical",
     "Operations", "Finance", "Strategy", "Growth", "Revenue". A Quality
     VP or Population Health VP is NOT a VP Experience.
@@ -2082,12 +2099,12 @@ _SMALL_PAYERS_FOR_RETRY: frozenset[str] = frozenset({
 })
 
 _RETRY_PERSONA_QUERY: dict[ExecutiveRole, str] = {
-    ExecutiveRole.CIO: '"Chief Information Officer" OR "CIO"',
-    ExecutiveRole.CMO: '"Chief Marketing Officer"',
+    ExecutiveRole.CIO: '"Chief Information Officer" OR "CIO" OR "Chief Digital"',
+    ExecutiveRole.CMO: '"Chief Marketing Officer" OR "VP Marketing" OR "SVP Marketing" OR "Chief Brand"',
     ExecutiveRole.CHIEF_MEDICAL: '"Chief Medical Officer" OR "CMO"',
     ExecutiveRole.VP_EXPERIENCE: (
         '"Chief Experience Officer" OR "VP Customer Experience" '
-        'OR "VP Member Experience"'
+        'OR "VP Member Experience" OR "VP Consumer Experience" OR "SVP Experience"'
     ),
 }
 
@@ -2183,12 +2200,12 @@ def run_executive(seed_path: Path, out_dir: Path) -> Path:
         # retry can run a fresh VPX search).
         classified = _deduplicate_personas(classified)
 
-        # v3.4: one-shot targeted retry for missing critical personas at
-        # large payers. Small Medicaid MCOs are skipped because they often
-        # have no named CIO/CMO/VPX and retries are wasted SearchApi quota.
-        payer_name_lc = p["payer_name"].lower()
-        is_small = any(s in payer_name_lc for s in _SMALL_PAYERS_FOR_RETRY)
-        if evidence and not is_small:
+        # v3.7: dynamic retry trigger. Replaces the hardcoded
+        # _SMALL_PAYERS_FOR_RETRY allowlist. If the initial LLM pass found
+        # fewer than 3 executives, treat the payer as thin-coverage and
+        # skip retries to save SearchApi quota.
+        found_count = sum(1 for info in classified.values() if info.get("name"))
+        if evidence and found_count >= 3:
             retries_used = 0
             for role in _RETRY_TARGET_ROLES:
                 if retries_used >= _MAX_RETRIES_PER_PAYER:

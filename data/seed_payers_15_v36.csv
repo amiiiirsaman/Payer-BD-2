@@ -1,0 +1,16 @@
+payer_name,domain,payer_type,search_aliases,search_excludes
+Aetna,aetna.com,National,Aetna|CVS Health|CVS Aetna|Aetna Inc,
+UnitedHealthcare,uhc.com,National,UnitedHealthcare|UHC|United Healthcare,
+Elevance Health,elevancehealth.com,National,Elevance Health|Anthem|Anthem Inc|Anthem BCBS,
+Cigna Corporation,cigna.com,National,Cigna|Cigna Group|Cigna Healthcare|Evernorth,
+Kaiser Foundation Health Plan Inc.,kp.org,National,Kaiser Permanente|Kaiser|KP|Kaiser Foundation,
+Florida Blue,floridablue.com,Blues Plan,Florida Blue|GuideWell|BCBS Florida|GuideWell Mutual,
+Horizon Blue Cross Blue Shield of New Jersey,horizonblue.com,Blues Plan,Horizon BCBSNJ|Horizon Blue Cross|Horizon NJ Health|BCBS New Jersey,
+Humana Inc.,humana.com,National,Humana|Humana Inc,
+Blue Cross Blue Shield of Michigan,bcbsm.com,Blues Plan,BCBS Michigan|Blue Cross Michigan|Blue Care Network,
+Point32Health Inc.,point32health.org,Regional,Point32Health|Harvard Pilgrim Health Care|Tufts Health Plan,
+Independence Blue Cross,ibx.com,Blues Plan,Independence Blue Cross|IBX|Independence BC,AmeriHealth Caritas|AmeriHealth New Jersey|AmeriHealth NJ
+CareOregon,careoregon.org,Medicaid MCO,CareOregon|Care Oregon|Oregon Health Plan CareOregon,
+Devoted Health,devoted.com,Medicare Advantage,Devoted Health|Devoted,
+Alameda Alliance for Health,alamedaalliance.org,Medicaid MCO,Alameda Alliance|Alliance for Health,
+Blue Cross and Blue Shield of Kansas,bcbsks.com,Blues Plan,BCBS Kansas|Blue Cross Kansas|Blue Shield Kansas,Blue Cross and Blue Shield of Kansas City
