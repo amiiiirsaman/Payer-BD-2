@@ -1968,6 +1968,22 @@ EVIDENCE (JSON array):
                 name, role_name, employer, payer_name,
             )
             continue
+        # v3.9: hard cross-payer contamination guard. Drop any candidate whose
+        # extracted employer or title contains a string from the payer's
+        # search_excludes list (e.g. an exec of Medical Mutual surfacing as
+        # CMO for Horizon BCBSNJ).
+        excludes_raw = payer.get("search_excludes") or ""
+        excludes_lower = {x.strip().lower() for x in excludes_raw.split("|") if x.strip()}
+        if excludes_lower:
+            title_lower_chk = (profile.get("title") or "").strip().lower()
+            if any(ex in employer for ex in excludes_lower) or any(
+                ex in title_lower_chk for ex in excludes_lower
+            ):
+                log.warning(
+                    "Dropping %s (%s): employer/title contains excluded cross-payer entity",
+                    name, role_name,
+                )
+                continue
         # v3.4: Python-level persona title gate. Hard-rejects e.g. a Chief
         # Growth Officer in the CMO slot or a Quality VP in VP Experience.
         title_for_filter = (profile.get("title") or "").strip()
@@ -2200,6 +2216,15 @@ _PERSONA_PRIORITY: tuple[ExecutiveRole, ...] = (
 )
 
 
+def _normalize_persona_name(n: str) -> str:
+    # v3.9: fuzzy dedup key — first-initial + last name so "Mike Gerrish"
+    # and "Michael Gerrish" collapse to the same key.
+    parts = re.findall(r"[a-z]+", n.lower())
+    if len(parts) >= 2:
+        return f"{parts[0][0]}_{parts[-1]}"
+    return n.strip().lower()
+
+
 def _deduplicate_personas(
     classified: dict[ExecutiveRole, dict],
 ) -> dict[ExecutiveRole, dict]:
@@ -2209,17 +2234,18 @@ def _deduplicate_personas(
         info = classified.get(role)
         if not info:
             continue
-        name = (info.get("name") or "").strip().lower()
+        name = (info.get("name") or "").strip()
         if not name:
             continue
-        if name in seen:
+        norm = _normalize_persona_name(name)
+        if norm in seen:
             log.warning(
                 "Deduplicating %s: already in %s slot, clearing %s slot",
-                info.get("name"), seen[name].value, role.value,
+                name, seen[norm].value, role.value,
             )
             classified.pop(role, None)
         else:
-            seen[name] = role
+            seen[norm] = role
     return classified
 
 

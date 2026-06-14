@@ -30,7 +30,7 @@ def test_seed_csv_has_aliases_column():
 
 def test_seed_csv_has_excludes_column():
     """v6: every seed row exposes the search_excludes column (may be empty)."""
-    rows = load_seed(Path("data/seed_payers_62.csv"))
+    rows = load_seed(Path("data/seed_payers.csv"))
     for r in rows:
         assert "search_excludes" in r
 
@@ -38,7 +38,7 @@ def test_seed_csv_has_excludes_column():
 def test_ibx_excludes_amerihealth_siblings():
     """Aarete MS-05: Independence Blue Cross must list AmeriHealth siblings
     as excludes, not aliases."""
-    rows = load_seed(Path("data/seed_payers_62.csv"))
+    rows = load_seed(Path("data/seed_payers.csv"))
     ibx = next(r for r in rows if r["payer_name"] == "Independence Blue Cross")
     assert "AmeriHealth Caritas" in ibx["search_excludes"]
     # And NOT in aliases (the bug we just fixed).
@@ -49,7 +49,7 @@ def test_ibx_excludes_amerihealth_siblings():
 
 
 def test_build_excludes_set_from_loaded_row():
-    rows = load_seed(Path("data/seed_payers_62.csv"))
+    rows = load_seed(Path("data/seed_payers.csv"))
     ibx = next(r for r in rows if r["payer_name"] == "Independence Blue Cross")
     excludes = build_excludes_set(ibx)
     assert "amerihealth caritas" in excludes
