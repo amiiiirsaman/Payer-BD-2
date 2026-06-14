@@ -27,9 +27,24 @@ __pycache__/
 build/
 dist/
 
-# Dev-only inspection scripts
-_check_v6_1_2.py
+# Dev-only inspection / scratch scripts
+_check_*.py
 _inspect_*.py
+_merge_*.py
+_parse_*.py
+_probe_*.py
+_report_*.py
+_acceptance_*.py
+
+# Generated / scratch payer seeds (kept locally, not versioned)
+data/seed_payers_*_v*.csv
+data/seed_payers_*_batch*.csv
+data/seed_payers_*_b[0-9].csv
+data/seed_payers_missing_*.csv
+data/seed_payers_remaining*.csv
+data/seed_payers_*random*.csv
+data/seed_uhc_*.csv
+data/seed_payers_v*_spot.csv
 
 # OS
 .DS_Store
