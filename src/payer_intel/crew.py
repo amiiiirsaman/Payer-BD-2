@@ -1203,6 +1203,15 @@ __all__ = [
 # ═════════════════════════════════════════════════════════════════════════════
 
 # Leadership-page path patterns appended to the payer's own domain.
+# v3.8: Leadership slug regex for anchor-discovery (see _discover_leadership_url).
+# Matches href/text values that point to a real leadership/team page.
+_LEADERSHIP_SLUG_RE = re.compile(
+    r"(leadership|executive[\-_]?team|our[\-_]?team|about[\-_]?us"
+    r"|our[\-_]?leaders|leadership[\-_]?team|meet[\-_]?the[\-_]?team)",
+    re.I,
+)
+
+# Fallback hardcoded paths used only when homepage anchor-discovery fails.
 _LEADERSHIP_PATHS = (
     "leadership",
     "about/leadership",
@@ -1212,6 +1221,37 @@ _LEADERSHIP_PATHS = (
     "about/our-leaders",
     "leadership-team",
 )
+
+
+def _discover_leadership_url(domain: str) -> str | None:
+    """Fetch the payer homepage once and follow the first anchor whose href
+    or visible text matches a leadership-page pattern.  Returns the resolved
+    absolute URL, or None if nothing is found or the fetch fails.
+
+    Preferred over _LEADERSHIP_PATHS because real slugs vary widely (86% 404
+    rate on hardcoded paths in the 15-payer probe).
+    """
+    from .tools.fetcher import fetch
+
+    home = f"https://{domain}/"
+    resp = fetch(home, timeout=10.0)
+    if resp is None:
+        return None
+    try:
+        soup = BeautifulSoup(resp.text, "html.parser")
+    except Exception:  # noqa: BLE001
+        return None
+
+    for tag in soup.find_all("a", href=True):
+        href: str = tag["href"].strip()
+        text: str = tag.get_text(" ", strip=True)
+        if _LEADERSHIP_SLUG_RE.search(href) or _LEADERSHIP_SLUG_RE.search(text):
+            if href.startswith("http"):
+                return href
+            if href.startswith("/"):
+                return f"https://{domain}{href}"
+            return f"https://{domain}/{href}"
+    return None
 
 # Press-release title patterns that strongly indicate an executive appointment.
 _APPOINTMENT_TERMS = (
@@ -1276,18 +1316,31 @@ def gather_executive_evidence(
                 )
             )
 
-        # v3.8: direct fetch of known leadership paths. Google often fails to
-        # index payer leadership pages; _enrich_executive_pages downstream
-        # will pull the page body for any URL whose host matches payer_domain.
-        for path in _LEADERSHIP_PATHS:
+        # v3.8: anchor-discovery — fetch homepage once, follow the real
+        # leadership slug link. Falls back to hardcoded _LEADERSHIP_PATHS
+        # only if homepage fetch fails (SPA shells, connection refused, etc.).
+        discovered_url = _discover_leadership_url(domain)
+        if discovered_url:
             evidence.append(
                 Evidence(
                     source_type="leadership_page",
-                    url=f"https://{domain}/{path}",
+                    url=discovered_url,
                     snippet="",
                     date=None,
                 )
             )
+        else:
+            # Fallback: inject hardcoded paths; 404s are silently dropped by
+            # _enrich_executive_pages when fetch returns None.
+            for path in _LEADERSHIP_PATHS:
+                evidence.append(
+                    Evidence(
+                        source_type="leadership_page",
+                        url=f"https://{domain}/{path}",
+                        snippet="",
+                        date=None,
+                    )
+                )
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
@@ -1443,6 +1496,8 @@ _TITLE_TO_ROLE_PATTERNS: list[tuple[re.Pattern[str], ExecutiveRole]] = [
     (re.compile(r"\bChief\s+Information\s+and\s+Digital\s+Officer\b", re.I), ExecutiveRole.CIO),
     (re.compile(r"\bCIO\b"), ExecutiveRole.CIO),
     (re.compile(r"\bCTO\b"), ExecutiveRole.CIO),
+    (re.compile(r"\bCDIO\b"), ExecutiveRole.CIO),   # v3.8: Chief Digital and Information Officer abbrev
+    (re.compile(r"\bCIDO\b"), ExecutiveRole.CIO),   # v3.8: Chief Information and Digital Officer abbrev
     (re.compile(r"\bChief\s+Marketing\s+Officer\b", re.I), ExecutiveRole.CMO),
     (re.compile(r"\bChief\s+Brand\s+Officer\b", re.I), ExecutiveRole.CMO),
     (re.compile(r"\bChief\s+Experience\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
@@ -1454,6 +1509,8 @@ _TITLE_TO_ROLE_PATTERNS: list[tuple[re.Pattern[str], ExecutiveRole]] = [
     (re.compile(r"\bVP\s+(?:of\s+)?Consumer\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Consumer\s+Officer\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bSVP\s+(?:Member|Consumer)\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),
+    (re.compile(r"\bSVP\s+Experience\b", re.I), ExecutiveRole.VP_EXPERIENCE),              # v3.8
+    (re.compile(r"\bVP\s+Digital\s+Engagement\b", re.I), ExecutiveRole.VP_EXPERIENCE),     # v3.8
     (re.compile(r"\bVP\s+Member\s+Services\b", re.I), ExecutiveRole.VP_EXPERIENCE),
     (re.compile(r"\bChief\s+Executive\s+Officer\b", re.I), ExecutiveRole.CEO),
     (re.compile(r"\b(?:Market|Plan)\s+President\b", re.I), ExecutiveRole.CEO),
