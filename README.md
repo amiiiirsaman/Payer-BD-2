@@ -103,7 +103,7 @@ Flags:
 
 ### Product mode
 
-`Aarete_BD_Salesforce_Payer_Intelligence_YYYYMMDD.xlsx` — one row per payer
+`enterprise_BD_Salesforce_Payer_Intelligence_YYYYMMDD.xlsx` — one row per payer
 with verdict columns (`Yes` / `Likely` / `No` / `Unknown`) for each Salesforce
 product (Sales Cloud, Service Cloud, Experience Cloud, Marketing Cloud,
 Pardot, Health Cloud, Agentforce for Healthcare, Life Sciences Cloud,
@@ -113,7 +113,7 @@ evidence summary.
 
 ### Executive mode
 
-`Aarete_BD_Executive_Intelligence_YYYYMMDD.xlsx` — three sheets:
+`enterprise_BD_Executive_Intelligence_YYYYMMDD.xlsx` — three sheets:
 
 1. **Executive Intelligence** — flat 15-column layout, five rows per payer
    (one per persona):
