@@ -1288,7 +1288,7 @@ def gather_executive_evidence(
         titles_clause = _exec_titles_for(role)
         query = (
             f"(site:linkedin.com/in/ OR site:linkedin.com/pub/) "
-            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"State Programs\") {titles_clause}"
+            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\" OR \"State Programs\") {titles_clause}"
         )
         for r in _safe_search(client.google, query, num=10):
             evidence.append(
@@ -1344,10 +1344,10 @@ def gather_executive_evidence(
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
-        f"{name_clause} (Medicaid OR \"Government Programs\") {_APPOINTMENT_TERMS} "
+        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") {_APPOINTMENT_TERMS} "
         f"(\"Chief Executive\" OR \"Chief Information\" OR \"Chief Technology\" "
         f"OR \"Chief Medical\" OR \"Chief Marketing\" OR \"Chief Growth\" "
-        f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\")"
+        f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\" OR \"SVP\")"
     )
     for r in _safe_search(
         client.google_news, appointment_query, time_range="qdr:2y", num=15
@@ -1674,6 +1674,21 @@ def _extract_executives_deterministic(
     return candidates
 
 
+def _is_enterprise_ceo_of_national_payer(payer_name: str, payer_type: str, title: str) -> bool:
+    """Reject enterprise CEOs for National/Blues payers unless the title specifies Medicaid."""
+    if payer_type.lower() == "medicaid mco":
+        return False  # Pure-play Medicaid MCOs can use their enterprise CEO
+
+    enterprise_titles = ["president and ceo", "president & ceo", "chief executive officer", "ceo"]
+    title_lower = (title or "").strip().lower()
+
+    # If it's a generic enterprise title without Medicaid qualifiers
+    if any(t == title_lower for t in enterprise_titles):
+        return True
+
+    return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Executive classifier (LLM) — resolves name collisions, picks current holder
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1738,18 +1753,23 @@ Rules:
   health plan — you MUST omit that executive entirely. Do NOT assign an executive
   from Independence Blue Cross to Aetna, or from Humana to UnitedHealth, etc.
   When in doubt, omit rather than guess.
-- MEDICAID DIVISION RULE (CRITICAL): You MUST prioritize executives who lead the
-    Medicaid, Government Programs, or State Sponsored Programs division over
-    enterprise-wide executives.
-    * If you find a "President of Medicaid" or "CEO of Community & State", put
-        them in the CEO slot instead of the enterprise CEO.
-    * If you find a "VP of Medicaid Technology" or "CIO of Government Programs",
-        put them in the CIO slot instead of the enterprise CIO.
+- MEDICAID DIVISION RULE (CRITICAL): You are building a list of MEDICAID and
+    GOVERNMENT PROGRAMS leaders. You MUST prioritize executives whose titles
+    explicitly mention "Medicaid", "Government Programs", "State Programs",
+    "Community & State", or "Medicare & Retirement".
+    * For the CEO slot: Do NOT use the enterprise CEO of a national payer
+        (e.g., do not use the CEO of UnitedHealth Group, Humana Inc., or Elevance
+        Health). You MUST find the President or CEO of the Medicaid / Government
+        Programs division (e.g., "CEO of UnitedHealthcare Community & State",
+        "President of Government Business", "SVP Medicaid").
+    * For non-CEO slots (CIO, CMO, Chief Medical, VP Experience): You MUST
+        prioritize the executive for the Medicaid/Government Programs division.
     * If the payer is a pure-play Medicaid MCO (e.g., CareSource, Molina,
-        Centene), the enterprise executives ARE the Medicaid executives.
-    * If you only find an enterprise executive and no Medicaid-specific executive
-        for a slot, you may use the enterprise executive, but clearly state in the
-        `bd_note` that they are an enterprise-level leader.
+        Centene), the enterprise executives ARE the Medicaid executives, so you
+        may use them.
+    * If you absolutely cannot find a Medicaid-specific leader for a slot, you
+        may use the enterprise leader, but you MUST state "Enterprise-level
+        executive" in the first sentence of the `bd_note`.
 - For EACH persona, pick the single current executive at {payer_name} based on
   the evidence. If no qualifying evidence exists, OMIT that persona from the
   output (do not invent names).
@@ -1858,6 +1878,13 @@ Rules:
   colleges, schools, institutes, academies, polytechnics, seminaries,
   conservatories) are NOT past jobs. Do not include them in `past_jobs`.
   Past_jobs must be professional employment positions only.
+- PAST JOBS (STRICT ANTI-HALLUCINATION RULE):
+    * You MUST extract past jobs ONLY from the provided evidence snippets.
+    * NEVER guess, infer, or use outside knowledge to fill in past jobs.
+    * If the evidence does not explicitly state the executive's prior employer
+        and title, you MUST leave the `past_jobs` list empty.
+    * Do NOT assign past jobs that belong to a different person with a similar
+        name.
 
 REGEX PRE-EXTRACTION (Layer 1 candidates from leadership-page bodies):
 {regex_blob}
@@ -1999,6 +2026,17 @@ EVIDENCE (JSON array):
         # v3.4: Python-level persona title gate. Hard-rejects e.g. a Chief
         # Growth Officer in the CMO slot or a Quality VP in VP Experience.
         title_for_filter = (profile.get("title") or "").strip()
+        # v2.1: hard guard against enterprise CEO leakage for national/blues
+        # payers. Pure-play Medicaid MCOs are exempt.
+        if role == ExecutiveRole.CEO:
+            if _is_enterprise_ceo_of_national_payer(
+                payer_name, payer.get("payer_type", ""), title_for_filter
+            ):
+                log.warning(
+                    "Dropping %s (%s) for %s: enterprise CEO title %r blocked by Medicaid guard",
+                    name, role_name, payer_name, title_for_filter,
+                )
+                continue
         if not _title_passes_persona_filter(role, title_for_filter):
             log.warning(
                 "Dropping %s (%s) for %s: title %r fails persona reject filter",
