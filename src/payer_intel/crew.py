@@ -1288,7 +1288,8 @@ def gather_executive_evidence(
         titles_clause = _exec_titles_for(role)
         query = (
             f"(site:linkedin.com/in/ OR site:linkedin.com/pub/) "
-            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\" OR \"State Programs\") {titles_clause}"
+            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\" OR \"State Programs\") "
+            f"-state -regional -market {titles_clause}"
         )
         for r in _safe_search(client.google, query, num=10):
             evidence.append(
@@ -1344,7 +1345,7 @@ def gather_executive_evidence(
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
-        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") {_APPOINTMENT_TERMS} "
+        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") -state -regional -market {_APPOINTMENT_TERMS} "
         f"(\"Chief Executive\" OR \"Chief Information\" OR \"Chief Technology\" "
         f"OR \"Chief Medical\" OR \"Chief Marketing\" OR \"Chief Growth\" "
         f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\" OR \"SVP\")"
@@ -1770,6 +1771,20 @@ Rules:
     * If you absolutely cannot find a Medicaid-specific leader for a slot, you
         may use the enterprise leader, but you MUST state "Enterprise-level
         executive" in the first sentence of the `bd_note`.
+- NATIONAL OVER STATE RULE (CRITICAL): You MUST prioritize NATIONAL Medicaid
+    leaders over state-level leaders.
+    * For national payers (e.g., UHC, Centene, Elevance), do NOT select a
+        state-level executive (e.g., "CMO of UHC Maryland" or "President of
+        Anthem Ohio"). You MUST find the National or Enterprise-wide Medicaid
+        leader (e.g., "National Chief Medical Officer, Medicaid").
+    * If you only find state-level executives for a slot, you MUST leave the
+        slot empty rather than using a state-level leader.
+- STRICT PERSONA MATCHING RULE: You MUST ensure the executive's title matches
+    the persona slot.
+    * Do NOT put an operations executive (e.g., "EVP Medicaid", "President of
+        Government Programs") into a clinical slot (Chief Medical, CMO).
+    * Clinical slots MUST be filled by physicians (MD/DO) or executives with
+        "Medical", "Health", or "Clinical" in their title.
 - For EACH persona, pick the single current executive at {payer_name} based on
   the evidence. If no qualifying evidence exists, OMIT that persona from the
   output (do not invent names).
