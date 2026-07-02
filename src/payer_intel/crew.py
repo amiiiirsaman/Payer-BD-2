@@ -1288,7 +1288,7 @@ def gather_executive_evidence(
         titles_clause = _exec_titles_for(role)
         query = (
             f"(site:linkedin.com/in/ OR site:linkedin.com/pub/) "
-            f"{name_clause} {titles_clause}"
+            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"State Programs\") {titles_clause}"
         )
         for r in _safe_search(client.google, query, num=10):
             evidence.append(
@@ -1344,10 +1344,10 @@ def gather_executive_evidence(
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
-        f"{name_clause} {_APPOINTMENT_TERMS} "
+        f"{name_clause} (Medicaid OR \"Government Programs\") {_APPOINTMENT_TERMS} "
         f"(\"Chief Executive\" OR \"Chief Information\" OR \"Chief Technology\" "
         f"OR \"Chief Medical\" OR \"Chief Marketing\" OR \"Chief Growth\" "
-        f"OR \"Chief Experience\")"
+        f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\")"
     )
     for r in _safe_search(
         client.google_news, appointment_query, time_range="qdr:2y", num=15
@@ -1723,8 +1723,9 @@ def _classify_executives_with_llm(
     )
 
     description = f"""
-You are identifying the CURRENT holders of 5 executive personas at the US health
-plan **{payer_name}** for a business-development outreach list.
+You are identifying the CURRENT holders of 5 executive personas SPECIFICALLY FOR
+THE MEDICAID OR GOVERNMENT PROGRAMS DIVISION at the US health plan **{payer_name}**
+for a business-development outreach list.
 
 TARGET PERSONAS (use these exact strings as JSON keys):
 {roles_list}
@@ -1737,6 +1738,18 @@ Rules:
   health plan — you MUST omit that executive entirely. Do NOT assign an executive
   from Independence Blue Cross to Aetna, or from Humana to UnitedHealth, etc.
   When in doubt, omit rather than guess.
+- MEDICAID DIVISION RULE (CRITICAL): You MUST prioritize executives who lead the
+    Medicaid, Government Programs, or State Sponsored Programs division over
+    enterprise-wide executives.
+    * If you find a "President of Medicaid" or "CEO of Community & State", put
+        them in the CEO slot instead of the enterprise CEO.
+    * If you find a "VP of Medicaid Technology" or "CIO of Government Programs",
+        put them in the CIO slot instead of the enterprise CIO.
+    * If the payer is a pure-play Medicaid MCO (e.g., CareSource, Molina,
+        Centene), the enterprise executives ARE the Medicaid executives.
+    * If you only find an enterprise executive and no Medicaid-specific executive
+        for a slot, you may use the enterprise executive, but clearly state in the
+        `bd_note` that they are an enterprise-level leader.
 - For EACH persona, pick the single current executive at {payer_name} based on
   the evidence. If no qualifying evidence exists, OMIT that persona from the
   output (do not invent names).
@@ -1865,16 +1878,15 @@ that is SPECIFIC to that individual (NOT a copy of the payer-level
 `bd_notes`). The per-exec `bd_note` must be 2-3 sentences:
   1. Sentence 1: this executive's background or tenure at {payer_name}
      (e.g. "Promoted from COO in March 2023 after 8 years internal tenure.").
-  2. Sentence 2: any relevant transition, initiative, or news specific to
-     this person (e.g. "Leading the post-merger integration with Cigna.").
-     Skip this sentence if no news exists; do NOT invent.
-  3. Sentence 3: an AArete engagement angle tailored to this person's role
-     (e.g. "New CIO from outside the org — early window for AArete cost
-     reduction analytics and IT modernization conversations.").
+  2. Sentence 2: explicitly note whether this leader's scope is
+      Medicaid/Government Programs or enterprise-wide fallback.
+  3. Sentence 3: include an AArete engagement angle tailored to Medicaid
+      priorities (e.g., redeterminations, state RFP/procurement cycles,
+      MLR optimization, or government-program cost reduction).
 Forbidden: starting the per-exec `bd_note` with "The payer ...", "{payer_name}
 has ...", or copying the payer-level `bd_notes` text verbatim. If the bd_note
 would just restate the payer-level summary, write a shorter individual note
-instead (background + engagement angle, omit transition sentence).
+instead (background + scope + engagement angle).
 
 OUTPUT — strict JSON only, no markdown, no prose outside the JSON:
 {{
@@ -2185,12 +2197,13 @@ _SMALL_PAYERS_FOR_RETRY: frozenset[str] = frozenset({
 })
 
 _RETRY_PERSONA_QUERY: dict[ExecutiveRole, str] = {
-    ExecutiveRole.CIO: '"Chief Information Officer" OR "CIO" OR "Chief Digital"',
-    ExecutiveRole.CMO: '"Chief Marketing Officer" OR "VP Marketing" OR "SVP Marketing" OR "Chief Brand"',
-    ExecutiveRole.CHIEF_MEDICAL: '"Chief Medical Officer" OR "CMO"',
+    ExecutiveRole.CIO: '("Chief Information Officer" OR "CIO" OR "Chief Digital") AND (Medicaid OR "Government Programs")',
+    ExecutiveRole.CMO: '("Chief Marketing Officer" OR "VP Marketing" OR "SVP Marketing" OR "Chief Brand") AND (Medicaid OR "Government Programs")',
+    ExecutiveRole.CHIEF_MEDICAL: '("Chief Medical Officer" OR "CMO") AND (Medicaid OR "Government Programs")',
     ExecutiveRole.VP_EXPERIENCE: (
-        '"Chief Experience Officer" OR "VP Customer Experience" '
-        'OR "VP Member Experience" OR "VP Consumer Experience" OR "SVP Experience"'
+        '("Chief Experience Officer" OR "VP Customer Experience" '
+        'OR "VP Member Experience" OR "VP Consumer Experience" OR "SVP Experience") '
+        'AND (Medicaid OR "Government Programs")'
     ),
 }
 

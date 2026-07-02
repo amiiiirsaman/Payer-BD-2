@@ -161,11 +161,11 @@ def executive_linkedin_agent() -> Agent:
         role="Executive Profile Hunter",
         goal=(
             "Find LinkedIn profiles for the 5 BD personas (CEO, CIO/CTO, CMO/Growth, "
-            "Chief Medical, VP Member Experience) at the target payer. For each executive, "
-            "capture: name, current title, LinkedIn URL, and the 2 most recent prior roles "
-            "(firm, title, years) for BD warm-intro mapping. ONLY include executives who "
-            "currently work at the target payer — never assign a profile from a different "
-            "health plan."
+            "Chief Medical, VP Member Experience) specifically within the Medicaid or "
+            "Government Programs division at the target payer. For each executive, capture: "
+            "name, current title, LinkedIn URL, and the 2 most recent prior roles (firm, "
+            "title, years) for BD warm-intro mapping. ONLY include executives who currently "
+            "work at the target payer — never assign a profile from a different health plan."
         ),
         backstory=(
             "You specialize in mining LinkedIn snippet results for executive identity, "
@@ -183,10 +183,11 @@ def executive_news_agent() -> Agent:
     return Agent(
         role="Leadership Change Tracker",
         goal=(
-            "Find press releases announcing executive appointments AND departures at the "
-            "target payer. Search official leadership pages, wire services, Becker's Payer "
-            "Issues, Modern Healthcare, and AHIP conference speaker lists. Flag any executive "
-            "who has announced retirement, a planned departure, or whose successor has been named."
+            "Find press releases announcing executive appointments AND departures within the "
+            "Medicaid and Government Programs divisions at the target payer. Search official "
+            "leadership pages, wire services, Becker's Payer Issues, Modern Healthcare, and "
+            "AHIP conference speaker lists. Flag any executive who has announced retirement, a "
+            "planned departure, or whose successor has been named."
         ),
         backstory=(
             "You scan business wire services, payer newsrooms, and healthcare trade press "
@@ -206,8 +207,9 @@ def executive_third_party_agent() -> Agent:
         role="Executive Directory Cross-Referencer",
         goal=(
             "Triangulate executive tenure, past roles (firm + title + years), and departure "
-            "risk via third-party directories: ZoomInfo, RocketReach, Becker's Payer Issues, "
-            "Modern Healthcare, and AHIP conference speaker pages."
+            "risk for Medicaid and Government Programs leaders via third-party directories: "
+            "ZoomInfo, RocketReach, Becker's Payer Issues, Modern Healthcare, and AHIP "
+            "conference speaker pages."
         ),
         backstory=(
             "You corroborate LinkedIn snippets with independent third-party sources to elevate "
@@ -226,17 +228,21 @@ def executive_classifier_agent() -> Agent:
         role="Executive Name Resolver",
         goal=(
             "From the gathered evidence, identify the single current holder of each of "
-            "the 5 BD personas at the target payer. CRITICAL: reject any executive whose "
-            "current employer does not match the target payer. Resolve name collisions by "
-            "preferring 'Present' LinkedIn tenure or the most recent press release. "
-            "Extract the 2 most recent prior roles (firm, title, years) per exec. "
-            "Flag departure_risk=true if any executive is retiring or has a named successor."
+            "the 5 BD personas specifically for the Medicaid or Government Programs line "
+            "of business at the target payer. CRITICAL: reject any executive whose current "
+            "employer does not match the target payer. Resolve name collisions by preferring "
+            "'Present' LinkedIn tenure or the most recent press release. Extract the 2 most "
+            "recent prior roles (firm, title, years) per exec. Flag departure_risk=true if "
+            "any executive is retiring or has a named successor."
         ),
         backstory=(
-            "You are an expert in payer leadership structures. You never confuse a Chief "
-            "Marketing Officer with a Chief Medical Officer, and you NEVER shoehorn a COO "
-            "or President into a CIO or CMO slot. You prefer to leave a slot blank rather "
-            "than assign an executive with the wrong title."
+            "You are an expert in payer leadership structures, specifically Medicaid and "
+            "Government Programs divisions. You understand that large national payers have "
+            "separate leadership teams for their Medicaid subsidiaries (for example Community "
+            "and State organizations). You never confuse a Chief Marketing Officer with a "
+            "Chief Medical Officer, and you NEVER shoehorn a COO or President into a CIO or "
+            "CMO slot. You prefer to leave a slot blank rather than assign an executive with "
+            "the wrong title."
         ),
         llm=_llm(),
         allow_delegation=False,
