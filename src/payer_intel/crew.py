@@ -530,6 +530,22 @@ _EMPLOYER_MATCH_STOPWORDS: frozenset[str] = frozenset({
 })
 
 
+def _is_valid_persona_match(extracted_title: str, persona: str) -> bool:
+    """Ensure the extracted title matches the clinical requirements of the persona."""
+    if not extracted_title:
+        return True
+
+    title_lower = extracted_title.lower()
+
+    if persona in ["Chief Medical", "CMO"]:
+        # Must have clinical keywords
+        if not any(k in title_lower for k in ["medical", "health", "clinical", "physician", "md", "do"]):
+            # Reject pure operations/growth titles
+            if any(k in title_lower for k in ["medicaid", "government", "growth", "marketing", "operations"]):
+                return False
+    return True
+
+
 def _employer_matches_payer(employer_lower: str, payer_aliases_lower: set[str]) -> bool:
     """Decide whether an LLM-extracted current employer plausibly belongs to a payer.
 
@@ -1289,7 +1305,7 @@ def gather_executive_evidence(
         query = (
             f"(site:linkedin.com/in/ OR site:linkedin.com/pub/) "
             f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\" OR \"State Programs\") "
-            f"-state -regional -market {titles_clause}"
+            f"{titles_clause}"
         )
         for r in _safe_search(client.google, query, num=10):
             evidence.append(
@@ -1345,7 +1361,7 @@ def gather_executive_evidence(
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
-        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") -state -regional -market {_APPOINTMENT_TERMS} "
+        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") {_APPOINTMENT_TERMS} "
         f"(\"Chief Executive\" OR \"Chief Information\" OR \"Chief Technology\" "
         f"OR \"Chief Medical\" OR \"Chief Marketing\" OR \"Chief Growth\" "
         f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\" OR \"SVP\")"
@@ -1679,12 +1695,26 @@ def _is_enterprise_ceo_of_national_payer(payer_name: str, payer_type: str, title
     """Reject enterprise CEOs for National/Blues payers unless the title specifies Medicaid."""
     if payer_type.lower() == "medicaid mco":
         return False  # Pure-play Medicaid MCOs can use their enterprise CEO
-
-    enterprise_titles = ["president and ceo", "president & ceo", "chief executive officer", "ceo"]
     title_lower = (title or "").strip().lower()
 
-    # If it's a generic enterprise title without Medicaid qualifiers
+    # If the title explicitly mentions Medicaid or Government Programs, allow it
+    if any(k in title_lower for k in ["medicaid", "government", "state programs", "community & state"]):
+        return False
+
+    # Block generic enterprise titles
+    enterprise_titles = [
+        "president and ceo", "president & ceo", "chief executive officer", "ceo",
+        "president", "group president", "executive vice president", "evp"
+    ]
+
+    # If it's a generic enterprise title without Medicaid qualifiers, block it
     if any(t == title_lower for t in enterprise_titles):
+        return True
+
+    # Also block if it contains enterprise indicators but no Medicaid qualifiers
+    if any(k in title_lower for k in ["enterprise", "global", "national", "group"]) and not any(
+        k in title_lower for k in ["medicaid", "government"]
+    ):
         return True
 
     return False
@@ -1771,14 +1801,12 @@ Rules:
     * If you absolutely cannot find a Medicaid-specific leader for a slot, you
         may use the enterprise leader, but you MUST state "Enterprise-level
         executive" in the first sentence of the `bd_note`.
-- NATIONAL OVER STATE RULE (CRITICAL): You MUST prioritize NATIONAL Medicaid
-    leaders over state-level leaders.
-    * For national payers (e.g., UHC, Centene, Elevance), do NOT select a
-        state-level executive (e.g., "CMO of UHC Maryland" or "President of
-        Anthem Ohio"). You MUST find the National or Enterprise-wide Medicaid
-        leader (e.g., "National Chief Medical Officer, Medicaid").
-    * If you only find state-level executives for a slot, you MUST leave the
-        slot empty rather than using a state-level leader.
+- NATIONAL OVER STATE RULE (CRITICAL): You MUST prioritize the NATIONAL leader
+    of the Medicaid/Government Programs division. Do NOT select state-level or
+    regional leaders (e.g., "CEO of UHC Maryland" or "Market President, Ohio").
+    If you cannot find the National Medicaid leader, leave the slot EMPTY.
+    Do NOT fall back to the Enterprise CEO (e.g., the CEO of UnitedHealth Group).
+    You must find the leader of the specific Medicaid subsidiary (e.g., UnitedHealthcare Community & State).
 - STRICT PERSONA MATCHING RULE: You MUST ensure the executive's title matches
     the persona slot.
     * Do NOT put an operations executive (e.g., "EVP Medicaid", "President of
@@ -1819,6 +1847,10 @@ Rules:
     "Chief Commercial Officer", "Chief Strategy Officer", "Chief Operating
     Officer". A Growth or Revenue Officer is NOT a CMO.
   * If no true CMO exists, OMIT the CMO persona from the JSON.
+- Chief Medical: The top clinical executive for the Medicaid division
+    (e.g., "Chief Medical Officer, Medicaid", "VP of Clinical Operations, Government Programs").
+    MUST be a physician (MD/DO) or have a strictly clinical title.
+    Do NOT use operations, growth, or strategy executives.
 - VP EXPERIENCE PERSONA — STRICT DEFINITION: the VP Experience slot is the
   executive responsible for member satisfaction, customer experience, NPS,
   or digital engagement.
@@ -2052,6 +2084,13 @@ EVIDENCE (JSON array):
                     name, role_name, payer_name, title_for_filter,
                 )
                 continue
+        # Check for persona mismatch (e.g., operations exec in clinical slot)
+        if not _is_valid_persona_match(title_for_filter, role_name):
+            log.warning(
+                "Dropping %s (%s) for %s: title %r does not match persona requirements",
+                name, role_name, payer_name, title_for_filter,
+            )
+            continue
         if not _title_passes_persona_filter(role, title_for_filter):
             log.warning(
                 "Dropping %s (%s) for %s: title %r fails persona reject filter",
