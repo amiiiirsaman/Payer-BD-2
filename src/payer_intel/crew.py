@@ -1813,6 +1813,7 @@ Rules:
         of the Medicaid / Government Programs division.
     * For non-CEO slots (CIO, CMO, Chief Medical, VP Experience): You MUST
         prioritize the executive for the Medicaid/Government Programs division.
+        (e.g., do NOT use Benjamin Kornitzer at Aetna; use Kara Odom Walker).
     * If the payer is a pure-play Medicaid MCO (e.g., CareSource, Molina,
         Centene), the enterprise executives ARE the Medicaid executives, so you
         may use them.
@@ -1822,10 +1823,13 @@ Rules:
 - NATIONAL OVER STATE RULE (CRITICAL): You MUST prioritize the NATIONAL leader
     of the Medicaid/Government Programs division. Do NOT select state-level or
     regional leaders (e.g., "CEO of UHC Maryland", "Market President, Ohio", or
-    Todd Anderson at Blue Cross Complete of Michigan).
+    Arethusa Stevens Kirk at UHC).
     If you cannot find the National Medicaid leader, leave the slot EMPTY.
     Do NOT fall back to the Enterprise CEO.
     You must find the leader of the specific Medicaid subsidiary (e.g., UnitedHealthcare Community & State).
+- DEPARTURE/STALE DATA RULE (CRITICAL): Do NOT select executives who have left
+    the company or stepped down (e.g., Kelly Munson left Aetna, Craig Klopatek
+    left Humana, James Cruz left Blue Shield CA).
 - STRICT PERSONA MATCHING RULE: You MUST ensure the executive's title matches
     the persona slot.
     * Do NOT put an operations executive (e.g., "EVP Medicaid", "President of
