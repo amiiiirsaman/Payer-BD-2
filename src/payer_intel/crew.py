@@ -1297,6 +1297,11 @@ def gather_executive_evidence(
     name = payer["payer_name"]
     domain = (payer.get("domain") or "").strip().lower()
     name_clause = build_name_clause(name, payer.get("search_aliases"))
+    # Include common Medicaid subsidiary brands so national-parent names can still retrieve the right leaders.
+    subsidiary_brands = (
+        '"Community & State" OR "Carelon" OR "Aetna Medicaid" '
+        'OR "Blue Cross Complete" OR "Promise Health Plan"'
+    )
     evidence: list[Evidence] = []
 
     # ── Per-persona LinkedIn snippets (5 calls) ────────────────────────────
@@ -1304,7 +1309,7 @@ def gather_executive_evidence(
         titles_clause = _exec_titles_for(role)
         query = (
             f"(site:linkedin.com/in/ OR site:linkedin.com/pub/) "
-            f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\" OR \"State Programs\") "
+            f"{name_clause} (Medicaid OR \"Government Programs\" OR {subsidiary_brands} OR \"State Programs\") "
             f"{titles_clause}"
         )
         for r in _safe_search(client.google, query, num=10):
@@ -1361,7 +1366,7 @@ def gather_executive_evidence(
 
     # ── Executive-appointment news (1 call) ────────────────────────────────
     appointment_query = (
-        f"{name_clause} (Medicaid OR \"Government Programs\" OR \"Community & State\") {_APPOINTMENT_TERMS} "
+        f"{name_clause} (Medicaid OR \"Government Programs\" OR {subsidiary_brands}) {_APPOINTMENT_TERMS} "
         f"(\"Chief Executive\" OR \"Chief Information\" OR \"Chief Technology\" "
         f"OR \"Chief Medical\" OR \"Chief Marketing\" OR \"Chief Growth\" "
         f"OR \"Chief Experience\" OR \"President\" OR \"Vice President\" OR \"SVP\")"
@@ -1695,27 +1700,41 @@ def _is_enterprise_ceo_of_national_payer(payer_name: str, payer_type: str, title
     """Reject enterprise CEOs for National/Blues payers unless the title specifies Medicaid."""
     if payer_type.lower() == "medicaid mco":
         return False  # Pure-play Medicaid MCOs can use their enterprise CEO
+
     title_lower = (title or "").strip().lower()
 
-    # If the title explicitly mentions Medicaid or Government Programs, allow it
-    if any(k in title_lower for k in ["medicaid", "government", "state programs", "community & state"]):
+    # 1. If the title explicitly mentions Medicaid or Government Programs, ALWAYS allow it
+    if any(
+        k in title_lower
+        for k in [
+            "medicaid",
+            "government",
+            "state programs",
+            "community & state",
+            "medicare & retirement",
+        ]
+    ):
         return False
 
-    # Block generic enterprise titles
-    enterprise_titles = [
-        "president and ceo", "president & ceo", "chief executive officer", "ceo",
-        "president", "group president", "executive vice president", "evp"
+    # 2. Block generic enterprise top-level titles (substring match)
+    enterprise_keywords = [
+        "chief executive officer",
+        "ceo",
+        "president and ceo",
+        "president & ceo",
+        "group president",
+        "enterprise president",
+        "global president",
     ]
 
-    # If it's a generic enterprise title without Medicaid qualifiers, block it
-    if any(t == title_lower for t in enterprise_titles):
+    if any(k in title_lower for k in enterprise_keywords):
         return True
 
-    # Also block if it contains enterprise indicators but no Medicaid qualifiers
-    if any(k in title_lower for k in ["enterprise", "global", "national", "group"]) and not any(
-        k in title_lower for k in ["medicaid", "government"]
-    ):
-        return True
+    # 3. Block "President" or "EVP" if accompanied by enterprise-scope words
+    enterprise_scope_words = ["enterprise", "global", "national", "group", "inc", "corporation"]
+    if any(k in title_lower for k in ["president", "executive vice president", "evp"]):
+        if any(scope in title_lower for scope in enterprise_scope_words):
+            return True
 
     return False
 
@@ -1787,12 +1806,11 @@ Rules:
 - MEDICAID DIVISION RULE (CRITICAL): You are building a list of MEDICAID and
     GOVERNMENT PROGRAMS leaders. You MUST prioritize executives whose titles
     explicitly mention "Medicaid", "Government Programs", "State Programs",
-    "Community & State", or "Medicare & Retirement".
+    "Community & State", "Carelon", or "Medicare & Retirement".
     * For the CEO slot: Do NOT use the enterprise CEO of a national payer
-        (e.g., do not use the CEO of UnitedHealth Group, Humana Inc., or Elevance
-        Health). You MUST find the President or CEO of the Medicaid / Government
-        Programs division (e.g., "CEO of UnitedHealthcare Community & State",
-        "President of Government Business", "SVP Medicaid").
+        (e.g., do NOT use Brian Evanko at Cigna, Tricia Keith at BCBS Michigan,
+        or Mike Stuart at Blue Shield of CA). You MUST find the President or CEO
+        of the Medicaid / Government Programs division.
     * For non-CEO slots (CIO, CMO, Chief Medical, VP Experience): You MUST
         prioritize the executive for the Medicaid/Government Programs division.
     * If the payer is a pure-play Medicaid MCO (e.g., CareSource, Molina,
@@ -1803,9 +1821,10 @@ Rules:
         executive" in the first sentence of the `bd_note`.
 - NATIONAL OVER STATE RULE (CRITICAL): You MUST prioritize the NATIONAL leader
     of the Medicaid/Government Programs division. Do NOT select state-level or
-    regional leaders (e.g., "CEO of UHC Maryland" or "Market President, Ohio").
+    regional leaders (e.g., "CEO of UHC Maryland", "Market President, Ohio", or
+    Todd Anderson at Blue Cross Complete of Michigan).
     If you cannot find the National Medicaid leader, leave the slot EMPTY.
-    Do NOT fall back to the Enterprise CEO (e.g., the CEO of UnitedHealth Group).
+    Do NOT fall back to the Enterprise CEO.
     You must find the leader of the specific Medicaid subsidiary (e.g., UnitedHealthcare Community & State).
 - STRICT PERSONA MATCHING RULE: You MUST ensure the executive's title matches
     the persona slot.
